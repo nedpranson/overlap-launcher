@@ -1,3 +1,4 @@
+#include "windef.h"
 #include <minwindef.h>
 #include <windows.h>
 #include <stdbool.h>
@@ -74,7 +75,52 @@ blk:
   return TRUE;
 }
 
+VOID Wineventproc(
+  HWINEVENTHOOK hWinEventHook,
+  DWORD event,
+  HWND hwnd,
+  LONG idObject,
+  LONG idChild,
+  DWORD idEventThread,
+  DWORD dwmsEventTime
+) {
+  (void)hWinEventHook;
+  (void)event;
+  (void)idObject;
+  (void)idChild;
+  (void)idEventThread;
+  (void)dwmsEventTime;
+
+  if (is_taskbar_window(hwnd)) {
+    int len = GetWindowTextLength(hwnd);
+    if (len == 0) return;
+
+    char* title = (char*)malloc(len + 1);
+    if (title == NULL) return;
+
+    GetWindowText(hwnd, title, len + 1);
+
+    printf("Focusing on: %s\n", title);
+    free(title);
+  }
+}
+
 int main(void) {
   EnumWindows(loop_windows, 0);
+
+  HWINEVENTHOOK hook = SetWinEventHook(
+      EVENT_OBJECT_FOCUS,
+      EVENT_OBJECT_FOCUS,
+      NULL,
+      Wineventproc,
+      0,
+      0,
+      WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
+  );
+
+  if (!hook) {
+    return 1;
+  }
+
   return 0;
 }
