@@ -1,9 +1,9 @@
 SOURCE := main.c
 
-run:
-	@mkdir -p zig-out/bin
-	zig cc -target x86_64-windows -Wall -Wextra -Wpedantic $(SOURCE) -o zig-out/bin/overlap.exe
+run:$(SOURCE)
+	@mkdir -p bin
+	zig cc -target x86_64-windows -Wall -Wextra -Wpedantic -ldwmapi $(SOURCE) -o bin/overlap.exe
 
 clean:
-	@rm -f zig-out/bin/overlap.exe
-	@rm -f zig-out/bin/overlap.pdb
+	@rm -f bin/overlap.exe
+	@rm -f bin/overlap.pdb
