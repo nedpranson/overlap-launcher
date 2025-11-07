@@ -122,5 +122,12 @@ int main(void) {
     return 1;
   }
 
+  MSG msg;
+  while (GetMessage(&msg, NULL, 0, 0)) {
+    TranslateMessage(&msg);
+    DispatchMessage(&msg);
+  }
+
+  UnhookWinEvent(hook);
   return 0;
 }
