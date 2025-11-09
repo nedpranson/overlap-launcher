@@ -1,139 +1,32 @@
-#include "windef.h"
-#include <minwindef.h>
 #include <windows.h>
-#include <stdbool.h>
-#include <assert.h>
-#include <stdio.h>
-#include <dwmapi.h>
 
-HWND get_owner_window(HWND window) {
-  HWND owner = window;
-  HWND tmp = NULL;
-
-  while ((tmp = GetWindow(owner, GW_OWNER))) {
-    owner = tmp;
+int main(int argc, char* argv[]) {
+  if (argc != 2) {
+    return 1;
   }
 
-  return owner;
-}
-
-bool is_win10_background(HWND window) {
-  // When DwmGetWindowAttribute we just want to return false by default.
-  BOOL flag = FALSE;
-  DwmGetWindowAttribute(window, DWMWA_CLOAKED, &flag, sizeof(BOOL));
-  return flag;
-}
-
-static inline bool is_app_window(DWORD ex_styles) {
-  return !((ex_styles & WS_EX_TOOLWINDOW) && !(ex_styles & WS_EX_APPWINDOW));
-}
-
-bool is_taskbar_window(HWND window) {
-  if (IsWindowVisible(window)) {
-    HWND owner = get_owner_window(window);
-    assert(owner != NULL);
-    
-    if (GetLastActivePopup(owner) != window) {
-      return false;
-    }
-
-    DWORD owner_styles = GetWindowLong(owner, GWL_EXSTYLE);
-    if (owner_styles && IsWindowVisible(owner) && is_app_window(owner_styles) && !is_win10_background(owner)) {
-      return true;
-    }
-
-    DWORD window_styles = GetWindowLong(window, GWL_EXSTYLE);
-    if (window_styles && is_app_window(window_styles) && !is_win10_background(window)) {
-      return true;
-    }
-
-    if (owner_styles == 0 && window_styles == 0) {
-      return true;
-    }
-  }
-  return false;
-}
-
-BOOL CALLBACK loop_windows(HWND hWnd, LPARAM lParam) {
-  (void)lParam;
-
-  if (is_taskbar_window(hWnd)) {
-    int len = GetWindowTextLength(hWnd);
-    if (len == 0) goto blk;
-
-    char* title = (char*)malloc(len + 1);
-    if (title == NULL) goto blk;
-
-    GetWindowText(hWnd, title, len + 1);
-
-    printf("%s\n", title);
-    free(title);
+  HMODULE lib = LoadLibrary(argv[1]);
+  if (!lib) {
+    return 1;
   }
 
-blk:
-
-  return TRUE;
-}
-
-VOID Wineventproc(
-  HWINEVENTHOOK hWinEventHook,
-  DWORD event,
-  HWND hwnd,
-  LONG idObject,
-  LONG idChild,
-  DWORD idEventThread,
-  DWORD dwmsEventTime
-) {
-  (void)hWinEventHook;
-  (void)event;
-  (void)idObject;
-  (void)idChild;
-  (void)idEventThread;
-  (void)dwmsEventTime;
-
-  if (is_taskbar_window(hwnd)) {
-
-    DWORD pid;
-    if (GetWindowThreadProcessId(hwnd, &pid) == 0) {
-      return;
-    }
-
-    switch (event) {
-    case EVENT_OBJECT_SHOW:
-      printf("object show: %lu\n", pid);
-      break;
-    case EVENT_OBJECT_DESTROY:
-      printf("object destroy: %lu\n", pid);
-      break;
-    default:
-      break;
-    }
+  FARPROC proc = GetProcAddress(lib, "__overlap_hook_proc");
+  if (!proc) {
+    FreeLibrary(lib);
+    return 1;
   }
-}
 
-int main(void) {
-  EnumWindows(loop_windows, 0);
-
-  HWINEVENTHOOK hook = SetWinEventHook(
-      EVENT_OBJECT_DESTROY,
-      EVENT_OBJECT_SHOW,
-      NULL,
-      Wineventproc,
-      0,
-      0,
-      WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS
-  );
-
+  HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, lib, 0);
   if (!hook) {
+    FreeLibrary(lib);
     return 1;
   }
 
   MSG msg;
-  while (GetMessage(&msg, NULL, 0, 0)) {
-    TranslateMessage(&msg);
-    DispatchMessage(&msg);
-  }
+  while (GetMessage(&msg, NULL, 0, 0)) {}
 
-  UnhookWinEvent(hook);
+  UnhookWindowsHookEx(hook);
+  FreeLibrary(lib);
+
   return 0;
 }
