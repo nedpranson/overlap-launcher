@@ -25,19 +25,11 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  MSG msg;
-  while (GetMessage(&msg, NULL, 0, 0)) {
-    TranslateMessage(&msg);
-    DispatchMessageA(&msg);
-  }
-
-  printf("press enter to exit...\n");
+  printf("press enter to exit...");
   getchar();
 
   UnhookWindowsHookEx(hook);
   FreeLibrary(lib);
-
-  printf("bye!\n");
 
   return 0;
 }
