@@ -31,10 +31,13 @@ int main(int argc, char* argv[]) {
     DispatchMessageA(&msg);
   }
 
+  printf("press enter to exit...\n");
+  getchar();
+
   UnhookWindowsHookEx(hook);
   FreeLibrary(lib);
 
-  printf("clean exit...\n");
+  printf("bye!\n");
 
   return 0;
 }
