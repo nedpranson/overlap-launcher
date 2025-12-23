@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <windows.h>
 
 __declspec(dllexport) void __overlap_ignore_proc(void) {}
@@ -32,6 +33,8 @@ int main(int argc, char* argv[]) {
 
   UnhookWindowsHookEx(hook);
   FreeLibrary(lib);
+
+  printf("clean exit...\n");
 
   return 0;
 }
