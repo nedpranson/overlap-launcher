@@ -42,6 +42,29 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 }
 
 int main(int argc, char* argv[]) {
+    int bId = MessageBoxW(
+        NULL,
+        L"Overlap is an EXPERIMENTAL ALPHA release.\n\n"
+        L"You should expect crashes, instability, and unexpected behavior.\n\n"
+        L"If you encounter any issues, feel free to report them at:\n"
+        L"https://github.com/nedpranson/overlap/issues\n\n"
+        L"Do you want to continue?",
+        L"Overlap – Alpha Warning",
+        MB_ICONWARNING | MB_OKCANCEL | MB_DEFBUTTON2);
+
+    if (bId != IDOK) {
+        return 0;
+    }
+
+    MessageBoxW(
+        NULL,
+        L"Note: Overlap will not be updated automatically for now.\n\n"
+        L"Any future updates must be downloaded manually from the Overlap GitHub repository:\n"
+        L"https://github.com/nedpranson/overlap\n\n"
+        L"Click OK to proceed.",
+        L"Overlap – Update Notice",
+        MB_ICONINFORMATION | MB_OK);
+
     if (argc != 2) {
         return 1;
     }
