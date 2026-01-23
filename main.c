@@ -1,111 +1,145 @@
 #include <windows.h>
 
+#define WM_TRAYICON (WM_USER + 1)
+
 __declspec(dllexport) void __overlap_ignore_proc(void) {}
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-  switch (uMsg) {
-    case WM_DESTROY:
-      PostQuitMessage(0);
-      break;
-  }
+    switch (uMsg) {
+        case WM_TRAYICON:
+            if (lParam == WM_RBUTTONUP) {
+                POINT point;
 
-  return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+                GetCursorPos(&point);
+                SetForegroundWindow(hWnd);
+
+                HMENU hMenu = (HMENU)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+
+                TrackPopupMenu(
+                    hMenu,
+                    TPM_RIGHTBUTTON,
+                    point.x,
+                    point.y,
+                    0,
+                    hWnd,
+                    NULL);
+            }
+            break;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            break;
+    }
+
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
 int main(int argc, char* argv[]) {
-  if (argc != 2) {
-    return 1;
-  }
+    if (argc != 2) {
+        return 1;
+    }
 
-  HMODULE libModule = LoadLibraryA(argv[1]);
-  if (!libModule) {
-    return 1;
-  }
+    HMODULE libModule = LoadLibraryA(argv[1]);
+    if (!libModule) {
+        return 1;
+    }
 
-  FARPROC proc = GetProcAddress(libModule, "__overlap_hook_proc");
-  if (!proc) {
-    FreeLibrary(libModule);
-    return 1;
-  }
+    FARPROC proc = GetProcAddress(libModule, "__overlap_hook_proc");
+    if (!proc) {
+        FreeLibrary(libModule);
+        return 1;
+    }
 
-  HINSTANCE hInstance = GetModuleHandleW(NULL);
-  if (!hInstance) {
-    FreeLibrary(libModule);
-    return 1;
-  }
+    HINSTANCE hInstance = GetModuleHandleW(NULL);
+    if (!hInstance) {
+        FreeLibrary(libModule);
+        return 1;
+    }
 
-  WNDCLASSW wndClass = {0};
-  wndClass.lpfnWndProc = WndProc;
-  wndClass.hInstance = hInstance;
-  wndClass.lpszClassName = L"OverlapTrayClass";
+    WNDCLASSW wndClass = {0};
+    wndClass.lpfnWndProc = WndProc;
+    wndClass.hInstance = hInstance;
+    wndClass.lpszClassName = L"OverlapTrayClass";
 
-  if (!RegisterClassW(&wndClass)) {
-    FreeLibrary(libModule);
-    return 1;
-  };
+    if (!RegisterClassW(&wndClass)) {
+        FreeLibrary(libModule);
+        return 1;
+    };
 
-  HWND hWnd = CreateWindowW(
-      wndClass.lpszClassName,
-      L"Overlap Tray Window",
-      WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT,
-      CW_USEDEFAULT,
-      640,
-      480,
-      NULL,
-      NULL,
-      hInstance,
-      NULL
-  );
+    HWND hWnd = CreateWindowW(
+        wndClass.lpszClassName,
+        L"Overlap Tray Window",
+        WS_OVERLAPPED,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        0,
+        0,
+        NULL,
+        NULL,
+        hInstance,
+        NULL);
 
-  if (!hWnd) {
-    FreeLibrary(libModule);
-    return 1;
-  }
+    if (!hWnd) {
+        FreeLibrary(libModule);
+        return 1;
+    }
 
-  HICON icon = LoadImageW(
-      NULL,
-      (LPWSTR)IDI_APPLICATION,
-      IMAGE_ICON,
-      16,
-      16,
-      LR_SHARED
-  );
+    HICON icon = LoadImageW(
+        NULL,
+        (LPWSTR)IDI_APPLICATION,
+        IMAGE_ICON,
+        16,
+        16,
+        LR_SHARED);
 
-  if (!icon) {
-    FreeLibrary(libModule);
-    return 1;
-  }
+    if (!icon) {
+        FreeLibrary(libModule);
+        return 1;
+    }
 
-  NOTIFYICONDATAW data = {0};
-  data.cbSize = sizeof(data);
-  data.hWnd = hWnd;
-  data.uID = 1;
-  data.uFlags = NIF_ICON | NIF_TIP;
-  data.hIcon = icon;
-  lstrcpyW(data.szTip, L"Overlap");
+    HMENU hMenu = CreatePopupMenu();
+    if (hMenu == NULL) {
+        FreeLibrary(libModule);
+        return 1;
+    }
 
-  if (!Shell_NotifyIconW(NIM_ADD, &data)) {
-    FreeLibrary(libModule);
-    return 1;
-  }
+    AppendMenuW(hMenu, MF_STRING | MF_DISABLED, 0, L"Overlap");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
 
-  HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
-  if (!hook) {
+    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)hMenu);
+
+    NOTIFYICONDATAW data = {0};
+    data.cbSize = sizeof(data);
+    data.hWnd = hWnd;
+    data.uID = 1;
+    data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
+    data.hIcon = icon;
+    data.uCallbackMessage = WM_TRAYICON;
+    lstrcpyW(data.szTip, L"Overlap");
+
+    if (!Shell_NotifyIconW(NIM_ADD, &data)) {
+        DestroyMenu(hMenu);
+        FreeLibrary(libModule);
+        return 1;
+    }
+
+    HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
+    if (!hook) {
+        Shell_NotifyIconW(NIM_DELETE, &data);
+        DestroyMenu(hMenu);
+        FreeLibrary(libModule);
+        return 1;
+    }
+
+    MSG msg;
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessageW(&msg);
+    }
+
+    UnhookWindowsHookEx(hook);
     Shell_NotifyIconW(NIM_DELETE, &data);
+    DestroyMenu(hMenu);
     FreeLibrary(libModule);
-    return 1;
-  }
 
-  MSG msg;
-  while (GetMessageW(&msg, NULL, 0, 0)) {
-    TranslateMessage(&msg);
-    DispatchMessageW(&msg);
-  }
-
-  Shell_NotifyIconW(NIM_DELETE, &data);
-  UnhookWindowsHookEx(hook);
-  FreeLibrary(libModule);
-
-  return 0;
+    return 0;
 }
