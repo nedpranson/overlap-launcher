@@ -2,7 +2,7 @@
 
 #define WM_TRAYICON (WM_USER + 1)
 
-#define TRAY_TITLE 2
+#define TRAY_TITLE 1
 #define TRAY_EXIT 2
 
 __declspec(dllexport) void __overlap_ignore_proc(void) {}
