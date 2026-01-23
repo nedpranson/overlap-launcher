@@ -2,6 +2,9 @@
 
 #define WM_TRAYICON (WM_USER + 1)
 
+#define TRAY_TITLE 2
+#define TRAY_EXIT 2
+
 __declspec(dllexport) void __overlap_ignore_proc(void) {}
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -23,6 +26,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                     0,
                     hWnd,
                     NULL);
+            }
+            break;
+        case WM_COMMAND:
+            if (LOWORD(wParam) == TRAY_EXIT) {
+                PostQuitMessage(0);
             }
             break;
         case WM_DESTROY:
@@ -102,8 +110,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    AppendMenuW(hMenu, MF_STRING | MF_DISABLED, 0, L"Overlap");
+    AppendMenuW(hMenu, MF_STRING, TRAY_TITLE, L"Overlap");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(hMenu, MF_STRING, TRAY_EXIT, L"Exit");
 
     SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)hMenu);
 
