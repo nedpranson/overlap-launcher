@@ -65,7 +65,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     MessageBoxW(
         NULL,
         L"Overlap will not be updated automatically for now.\n\n"
-        L"Any future updates must be downloaded manually from the Overlap GitHub repository:\n"
+        L"Any future updates must be manually downloaded from the Overlap GitHub repository:\n"
         L"https://github.com/nedpranson/overlap\n\n"
         L"Click OK to proceed.",
         L"Overlap – Update Notice",
@@ -73,6 +73,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
 
     HMODULE libModule = LoadLibraryA("overlap.dll");
     if (!libModule) {
+        MessageBoxW(
+            NULL,
+            L"Ensure `overlap.dll` exists in the launcher's root directory.\n\n"
+            L"Otherwise, download it from the Overlap GitHub repository:\n"
+            L"https://github.com/nedpranson/overlap/releases/latest",
+            L"Overlap – Failed to Load `overlap.dll`.",
+            MB_ICONERROR | MB_OK);
+
         return 1;
     }
 
