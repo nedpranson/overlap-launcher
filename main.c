@@ -41,10 +41,16 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     return DefWindowProcW(hWnd, uMsg, wParam, lParam);
 }
 
-int main(int argc, char* argv[]) {
+int main(void) {}
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    (void)hPrevInstance;
+    (void)pCmdLine;
+    (void)nCmdShow;
+
     int bId = MessageBoxW(
         NULL,
-        L"Overlap is currently at ALPHA release.\n\n"
+        L"Overlap is currently in ALPHA release.\n\n"
         L"You should expect crashes, instability, and unexpected behavior.\n\n"
         L"If you encounter any issues, feel free to report them at:\n"
         L"https://github.com/nedpranson/overlap/issues\n\n"
@@ -65,23 +71,13 @@ int main(int argc, char* argv[]) {
         L"Overlap – Update Notice",
         MB_ICONINFORMATION | MB_OK);
 
-    if (argc != 2) {
-        return 1;
-    }
-
-    HMODULE libModule = LoadLibraryA(argv[1]);
+    HMODULE libModule = LoadLibraryA("overlap.dll");
     if (!libModule) {
         return 1;
     }
 
     FARPROC proc = GetProcAddress(libModule, "__overlap_hook_proc");
     if (!proc) {
-        FreeLibrary(libModule);
-        return 1;
-    }
-
-    HINSTANCE hInstance = GetModuleHandleW(NULL);
-    if (!hInstance) {
         FreeLibrary(libModule);
         return 1;
     }
