@@ -1,0 +1,13 @@
+.{
+    .name = .overlap_launcher,
+    .version = "0.0.1",
+    .dependencies = .{
+        .nuklear = .{
+            .url = "https://github.com/Immediate-Mode-UI/Nuklear/archive/refs/tags/4.12.8.tar.gz",
+            .hash = "N-V-__8AAJRXZACplwL2Rewz3SHQ2nqva-x0Omg539fHlE83",
+        },
+    },
+    .minimum_zig_version = "0.15.2",
+    .paths = .{""},
+    .fingerprint = 0x547e0e0f6eb6ff61,
+}
