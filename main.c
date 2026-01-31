@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <stdbool.h>
 
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
@@ -70,9 +71,9 @@ static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
 
     D3DPRESENT_PARAMETERS params = { 0 };
     params.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
-    params.BackBufferHeight = WINDOW_WIDTH;
+    params.BackBufferWidth = WINDOW_WIDTH;
     params.BackBufferHeight = WINDOW_HEIGHT;
-    params.BackBufferFormat = D3DFMT_X8B8G8R8;
+    params.BackBufferFormat = D3DFMT_X8R8G8B8;
     params.BackBufferCount = 1;
     params.MultiSampleType = D3DMULTISAMPLE_NONE;
     params.SwapEffect = D3DSWAPEFFECT_DISCARD;
@@ -150,9 +151,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     }
 
     WNDCLASSW wndClass = {0};
+    wndClass.style = CS_DBLCLKS;
     wndClass.lpfnWndProc = WndProc;
     wndClass.hInstance = hInstance;
-    wndClass.lpszClassName = L"OverlapTrayClass";
+    wndClass.lpszClassName = L"OverlapLauncherClass";
 
     // todo: unregister class
     if (!RegisterClassW(&wndClass)) {
@@ -160,14 +162,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         return 1;
     };
 
-    HWND hWnd = CreateWindowW(
+    RECT rect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
+    AdjustWindowRectEx(&rect, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, WS_EX_APPWINDOW);
+
+    HWND hWnd = CreateWindowExW(
+        WS_EX_APPWINDOW,
         wndClass.lpszClassName,
-        L"Overlap Tray Window",
-        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        L"Overlap Launcher Window",
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
-        WINDOW_WIDTH,
-        WINDOW_HEIGHT,
+        rect.right - rect.left,
+        rect.bottom - rect.top,
         NULL,
         NULL,
         hInstance,
@@ -253,12 +259,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
 
-    while (1) {
+    bool running = true;
+    while (running) {
         MSG msg;
         HRESULT hr;
 
         nk_input_begin(ctx);
-        while (GetMessageW(&msg, NULL, 0, 0)) {
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+            running = msg.message != WM_QUIT;
+
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
