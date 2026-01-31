@@ -16,8 +16,8 @@
 #include "nuklear.h"
 #include "nuklear_d3d9.h"
 
-#define WINDOW_WIDTH 600
-#define WINDOW_HEIGHT 800
+#define WINDOW_WIDTH 400
+#define WINDOW_HEIGHT 600
 
 #define WM_TRAYICON (WM_USER + 1)
 
@@ -25,6 +25,36 @@
 #define TRAY_EXIT 2
 
 __declspec(dllexport) void __overlap_ignore_proc(void) {}
+
+#define CONTINUE_IF(ok) if (!ok) { \
+    result = 1; \
+    goto cleanup; \
+}
+
+#define COL_BG        nk_rgba(16, 25, 30, 255)   // #10191E
+#define COL_BG_SOFT   nk_rgba(22, 32, 38, 255)
+#define COL_BG_HOVER  nk_rgba(28, 38, 44, 255)
+
+#define COL_TEXT      nk_rgba(255, 255, 255, 255)
+#define COL_TEXT_MUTED nk_rgba(170, 180, 185, 255)
+
+#define COL_BORDER    nk_rgba(40, 55, 60, 255)
+
+#define COL_ACCENT    nk_rgba(0, 223, 162, 255) // #00DFA2
+#define COL_ACCENT_SOFT nk_rgba(0, 223, 162, 120)
+
+#define COL_INV_BG    nk_rgba(255, 255, 255, 255)
+#define COL_INV_TEXT  nk_rgba(0, 0, 0, 255)
+
+// | -----------------|
+// | Logo            :|
+// |------------------|
+// | O Hollow Knight  |
+// | O Some other...  |
+// | ...              |
+// | ..               |
+// | .                |
+// |------------------|
 
 static LRESULT CALLBACK
 WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -85,7 +115,7 @@ static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
 
     IDirect3D9Ex* d3d9;
     hr = Direct3DCreate9Ex(D3D_SDK_VERSION, &d3d9);
-    if (!SUCCEEDED(hr)) {
+    if (FAILED(hr)) {
         return hr;
     }
 
@@ -103,10 +133,51 @@ static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
     return hr;
 }
 
+static HRESULT RenderD3D9Objects(IDirect3DDevice9Ex* device) {
+    HRESULT hr;
+
+    hr = IDirect3DDevice9Ex_Clear(
+        device,
+        0,
+        NULL,
+        D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL,
+        D3DCOLOR_COLORVALUE(1.00f, 1.0f, 1.0f, 1.0f), 0.0f, 0);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = IDirect3DDevice9Ex_BeginScene(device);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    nk_d3d9_render(NK_ANTI_ALIASING_ON);
+
+    hr = IDirect3DDevice9Ex_EndScene(device);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = IDirect3DDevice9Ex_PresentEx(device, NULL, NULL, NULL, NULL, 0);
+    return hr;
+}
+
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nCmdShow) {
     (void)hPrevInstance;
     (void)pCmdLine;
     (void)nCmdShow;
+
+    HWND hWnd = NULL;
+    HMENU hMenu = NULL;
+    HMODULE libModule = NULL;
+
+    bool wndClassRegistered = false;
+    bool shellIconNotified = false;
+
+    IDirect3DDevice9Ex *device = NULL;
+    struct nk_context* ctx = NULL;
+    
+    int result = 0;
 
     int bId = MessageBoxW(
         NULL,
@@ -131,7 +202,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         L"Overlap – Update Notice",
         MB_ICONINFORMATION | MB_OK);
 
-    HMODULE libModule = LoadLibraryA("overlap.dll");
+    libModule = LoadLibraryA("overlap.dll");
     if (!libModule) {
         MessageBoxW(
             NULL,
@@ -145,10 +216,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     }
 
     FARPROC proc = GetProcAddress(libModule, "__overlap_hook_proc");
-    if (!proc) {
-        FreeLibrary(libModule);
-        return 1;
-    }
+    CONTINUE_IF(proc);
+
+    HICON icon = LoadImageW(
+        NULL,
+        (LPWSTR)IDI_APPLICATION,
+        IMAGE_ICON,
+        16,
+        16,
+        LR_SHARED);
+
+    CONTINUE_IF(icon);
 
     WNDCLASSW wndClass = {0};
     wndClass.style = CS_DBLCLKS;
@@ -156,19 +234,20 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     wndClass.hInstance = hInstance;
     wndClass.lpszClassName = L"OverlapLauncherClass";
 
-    // todo: unregister class
-    if (!RegisterClassW(&wndClass)) {
-        FreeLibrary(libModule);
-        return 1;
-    };
+    CONTINUE_IF(RegisterClassW(&wndClass));
+    wndClassRegistered = true;
 
     RECT rect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
-    AdjustWindowRectEx(&rect, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE, WS_EX_APPWINDOW);
+    CONTINUE_IF(AdjustWindowRectEx(
+        &rect,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        FALSE,
+        WS_EX_APPWINDOW));
 
-    HWND hWnd = CreateWindowExW(
+    hWnd = CreateWindowExW(
         WS_EX_APPWINDOW,
         wndClass.lpszClassName,
-        L"Overlap Launcher Window",
+        L"Overlap Launcher",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
@@ -179,39 +258,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         hInstance,
         NULL);
 
-    if (!hWnd) {
-        FreeLibrary(libModule);
-        return 1;
-    }
-    IDirect3DDevice9Ex *device;
-    if (!SUCCEEDED(CreateD3D9Device(hWnd, &device))) {
-        DestroyWindow(hWnd);
-        FreeLibrary(libModule);
-        return 1;
-    }
+    CONTINUE_IF(hWnd);
 
-    HICON icon = LoadImageW(
-        NULL,
-        (LPWSTR)IDI_APPLICATION,
-        IMAGE_ICON,
-        16,
-        16,
-        LR_SHARED);
-
-    if (!icon) {
-        IDirect3DDevice9Ex_Release(device);
-        DestroyWindow(hWnd);
-        FreeLibrary(libModule);
-        return 1;
-    }
-
-    HMENU hMenu = CreatePopupMenu();
-    if (hMenu == NULL) {
-        IDirect3DDevice9Ex_Release(device);
-        DestroyWindow(hWnd);
-        FreeLibrary(libModule);
-        return 1;
-    }
+    hMenu = CreatePopupMenu();
+    CONTINUE_IF(hMenu);
 
     AppendMenuW(hMenu, MF_STRING, TRAY_TITLE, L"Overlap");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
@@ -228,13 +278,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     data.uCallbackMessage = WM_TRAYICON;
     lstrcpyW(data.szTip, L"Overlap");
 
-    if (!Shell_NotifyIconW(NIM_ADD, &data)) {
-        DestroyMenu(hMenu);
-        IDirect3DDevice9Ex_Release(device);
-        DestroyWindow(hWnd);
-        FreeLibrary(libModule);
-        return 1;
-    }
+    CONTINUE_IF(Shell_NotifyIconW(NIM_ADD, &data));
+    shellIconNotified = true;
+
+    CONTINUE_IF(CreateD3D9Device(hWnd, &device));
 
     //HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
     //if (!hook) {
@@ -244,77 +291,100 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         //return 1;
     //}
 
-    // todo: QueryInterface
-    struct nk_context* ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
+    ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
 
-    if (!ctx) {
-        DestroyMenu(hMenu);
-        IDirect3DDevice9Ex_Release(device);
-        DestroyWindow(hWnd);
-        Shell_NotifyIconW(NIM_DELETE, &data);
-        FreeLibrary(libModule);
-    }
+    // move this to some function
+    struct nk_color table[NK_COLOR_COUNT];
+
+    table[NK_COLOR_TEXT] = COL_TEXT;
+    table[NK_COLOR_WINDOW] = COL_BG;
+    table[NK_COLOR_HEADER] = COL_BG_SOFT;
+    table[NK_COLOR_BORDER] = COL_BORDER;
+
+    table[NK_COLOR_BUTTON] = COL_BG_SOFT;
+    table[NK_COLOR_BUTTON_HOVER] = COL_BG_HOVER;
+    table[NK_COLOR_BUTTON_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_TOGGLE] = COL_BG_SOFT;
+    table[NK_COLOR_TOGGLE_HOVER] = COL_BG_HOVER;
+    table[NK_COLOR_TOGGLE_CURSOR] = COL_ACCENT;
+
+    table[NK_COLOR_SELECT] = COL_BG_SOFT;
+    table[NK_COLOR_SELECT_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_SLIDER] = COL_BG_SOFT;
+    table[NK_COLOR_SLIDER_CURSOR] = COL_ACCENT_SOFT;
+    table[NK_COLOR_SLIDER_CURSOR_HOVER] = COL_ACCENT;
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_PROPERTY] = COL_BG_SOFT;
+    table[NK_COLOR_EDIT] = COL_BG_SOFT;
+    table[NK_COLOR_EDIT_CURSOR] = COL_ACCENT;
+
+    table[NK_COLOR_COMBO] = COL_BG_SOFT;
+
+    table[NK_COLOR_CHART] = COL_BG_SOFT;
+    table[NK_COLOR_CHART_COLOR] = COL_ACCENT;
+    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = COL_ACCENT;
+
+    table[NK_COLOR_SCROLLBAR] = COL_BG_SOFT;
+    table[NK_COLOR_SCROLLBAR_CURSOR] = COL_BG_HOVER;
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = COL_ACCENT_SOFT;
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_TAB_HEADER] = COL_BG_SOFT;
+
+    table[NK_COLOR_KNOB] = COL_BG_SOFT;
+    table[NK_COLOR_KNOB_CURSOR] = COL_ACCENT_SOFT;
+    table[NK_COLOR_KNOB_CURSOR_HOVER] = COL_ACCENT;
+    table[NK_COLOR_KNOB_CURSOR_ACTIVE] = COL_ACCENT;
+
+    nk_style_from_table(ctx, table);
 
     struct nk_font_atlas *atlas;
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
 
-    bool running = true;
-    while (running) {
+    while (true) {
         MSG msg;
         HRESULT hr;
 
         nk_input_begin(ctx);
         while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-            running = msg.message != WM_QUIT;
+            if (msg.message == WM_QUIT) {
+                goto cleanup;
+            }
 
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
         nk_input_end(ctx);
 
-        
-        if (nk_begin(
-            ctx, "Demo",
-            nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT),
-            NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-
+        if (nk_begin(ctx, "Demo", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
             nk_layout_row_static(ctx, 30, 80, 1);
             nk_button_label(ctx, "button");
 
         }
         nk_end(ctx);
 
-        // todo: remove these asserts!!!
-        // todo: add like cleanup goto
-        hr = IDirect3DDevice9Ex_Clear(
-            device,
-            0,
-            NULL,
-            D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL,
-            D3DCOLOR_COLORVALUE(0.10f, 0.18f, 0.24f, 1.0f), 0.0f, 0);
-        NK_ASSERT(SUCCEEDED(hr));
+        hr = RenderD3D9Objects(device);
+        CONTINUE_IF(SUCCEEDED(hr));
 
-        hr = IDirect3DDevice9Ex_BeginScene(device);
-        NK_ASSERT(SUCCEEDED(hr));
-        nk_d3d9_render(NK_ANTI_ALIASING_ON);
-        hr = IDirect3DDevice9Ex_EndScene(device);
-        NK_ASSERT(SUCCEEDED(hr));
-
-        hr = IDirect3DDevice9Ex_PresentEx(device, NULL, NULL, NULL, NULL, 0);
         if (hr == S_PRESENT_OCCLUDED) {
             Sleep(10);
         }
-        NK_ASSERT(SUCCEEDED(hr));
     }
 
-    //UnhookWindowsHookEx(hook);
-    nk_d3d9_shutdown();
-    DestroyMenu(hMenu);
-    IDirect3DDevice9Ex_Release(device);
-    DestroyWindow(hWnd);
-    Shell_NotifyIconW(NIM_DELETE, &data);
-    FreeLibrary(libModule);
+cleanup:
 
-    return 0;
+    //UnhookWindowsHookEx(hook);
+    if (ctx) nk_d3d9_shutdown();
+    if (device) IDirect3DDevice9Ex_Release(device);
+    if (shellIconNotified) Shell_NotifyIconW(NIM_DELETE, &data);
+    if (hMenu) DestroyMenu(hMenu);
+    if (hWnd) DestroyWindow(hWnd);
+    if (wndClassRegistered) UnregisterClassW(wndClass.lpszClassName, wndClass.hInstance);
+    if (libModule) FreeLibrary(libModule);
+
+    return result;
 }
