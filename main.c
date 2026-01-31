@@ -1,3 +1,4 @@
+#include "winerror.h"
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -162,6 +163,57 @@ static HRESULT RenderD3D9Objects(IDirect3DDevice9Ex* device) {
     return hr;
 }
 
+static void SetDarkTheme(struct nk_context* ctx) {
+    struct nk_color table[NK_COLOR_COUNT];
+
+    // todo: pick actual nice colors
+
+    table[NK_COLOR_TEXT] = COL_TEXT;
+    table[NK_COLOR_WINDOW] = COL_BG;
+    table[NK_COLOR_HEADER] = COL_BG_SOFT;
+    table[NK_COLOR_BORDER] = COL_BORDER;
+
+    table[NK_COLOR_BUTTON] = COL_BG_SOFT;
+    table[NK_COLOR_BUTTON_HOVER] = COL_BG_HOVER;
+    table[NK_COLOR_BUTTON_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_TOGGLE] = COL_BG_SOFT;
+    table[NK_COLOR_TOGGLE_HOVER] = COL_BG_HOVER;
+    table[NK_COLOR_TOGGLE_CURSOR] = COL_ACCENT;
+
+    table[NK_COLOR_SELECT] = COL_BG_SOFT;
+    table[NK_COLOR_SELECT_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_SLIDER] = COL_BG_SOFT;
+    table[NK_COLOR_SLIDER_CURSOR] = COL_ACCENT_SOFT;
+    table[NK_COLOR_SLIDER_CURSOR_HOVER] = COL_ACCENT;
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_PROPERTY] = COL_BG_SOFT;
+    table[NK_COLOR_EDIT] = COL_BG_SOFT;
+    table[NK_COLOR_EDIT_CURSOR] = COL_ACCENT;
+
+    table[NK_COLOR_COMBO] = COL_BG_SOFT;
+
+    table[NK_COLOR_CHART] = COL_BG_SOFT;
+    table[NK_COLOR_CHART_COLOR] = COL_ACCENT;
+    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = COL_ACCENT;
+
+    table[NK_COLOR_SCROLLBAR] = COL_BG_SOFT;
+    table[NK_COLOR_SCROLLBAR_CURSOR] = COL_BG_HOVER;
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = COL_ACCENT_SOFT;
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = COL_ACCENT;
+
+    table[NK_COLOR_TAB_HEADER] = COL_BG_SOFT;
+
+    table[NK_COLOR_KNOB] = COL_BG_SOFT;
+    table[NK_COLOR_KNOB_CURSOR] = COL_ACCENT_SOFT;
+    table[NK_COLOR_KNOB_CURSOR_HOVER] = COL_ACCENT;
+    table[NK_COLOR_KNOB_CURSOR_ACTIVE] = COL_ACCENT;
+
+    nk_style_from_table(ctx, table);
+}
+
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nCmdShow) {
     (void)hPrevInstance;
     (void)pCmdLine;
@@ -281,7 +333,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     CONTINUE_IF(Shell_NotifyIconW(NIM_ADD, &data));
     shellIconNotified = true;
 
-    CONTINUE_IF(CreateD3D9Device(hWnd, &device));
+    CONTINUE_IF(SUCCEEDED(CreateD3D9Device(hWnd, &device)));
 
     //HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
     //if (!hook) {
@@ -293,57 +345,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
 
     ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
 
-    // move this to some function
-    struct nk_color table[NK_COLOR_COUNT];
-
-    table[NK_COLOR_TEXT] = COL_TEXT;
-    table[NK_COLOR_WINDOW] = COL_BG;
-    table[NK_COLOR_HEADER] = COL_BG_SOFT;
-    table[NK_COLOR_BORDER] = COL_BORDER;
-
-    table[NK_COLOR_BUTTON] = COL_BG_SOFT;
-    table[NK_COLOR_BUTTON_HOVER] = COL_BG_HOVER;
-    table[NK_COLOR_BUTTON_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_TOGGLE] = COL_BG_SOFT;
-    table[NK_COLOR_TOGGLE_HOVER] = COL_BG_HOVER;
-    table[NK_COLOR_TOGGLE_CURSOR] = COL_ACCENT;
-
-    table[NK_COLOR_SELECT] = COL_BG_SOFT;
-    table[NK_COLOR_SELECT_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_SLIDER] = COL_BG_SOFT;
-    table[NK_COLOR_SLIDER_CURSOR] = COL_ACCENT_SOFT;
-    table[NK_COLOR_SLIDER_CURSOR_HOVER] = COL_ACCENT;
-    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_PROPERTY] = COL_BG_SOFT;
-    table[NK_COLOR_EDIT] = COL_BG_SOFT;
-    table[NK_COLOR_EDIT_CURSOR] = COL_ACCENT;
-
-    table[NK_COLOR_COMBO] = COL_BG_SOFT;
-
-    table[NK_COLOR_CHART] = COL_BG_SOFT;
-    table[NK_COLOR_CHART_COLOR] = COL_ACCENT;
-    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = COL_ACCENT;
-
-    table[NK_COLOR_SCROLLBAR] = COL_BG_SOFT;
-    table[NK_COLOR_SCROLLBAR_CURSOR] = COL_BG_HOVER;
-    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = COL_ACCENT_SOFT;
-    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_TAB_HEADER] = COL_BG_SOFT;
-
-    table[NK_COLOR_KNOB] = COL_BG_SOFT;
-    table[NK_COLOR_KNOB_CURSOR] = COL_ACCENT_SOFT;
-    table[NK_COLOR_KNOB_CURSOR_HOVER] = COL_ACCENT;
-    table[NK_COLOR_KNOB_CURSOR_ACTIVE] = COL_ACCENT;
-
-    nk_style_from_table(ctx, table);
-
     struct nk_font_atlas *atlas;
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
+
+    SetDarkTheme(ctx);
 
     while (true) {
         MSG msg;
