@@ -2,3 +2,5 @@ CompileFlags:
   Add:
     - "--target=x86_64-windows-gnu"
     - "-I/usr/lib/zig/libc/include/any-windows-any/"
+    - "-I/home/nedas/.cache/zig/p/N-V-__8AAJRXZACplwL2Rewz3SHQ2nqva-x0Omg539fHlE83"
+    - "-I/home/nedas/.cache/zig/p/N-V-__8AAJRXZACplwL2Rewz3SHQ2nqva-x0Omg539fHlE83/demo/d3d9"
