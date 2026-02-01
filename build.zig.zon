@@ -6,6 +6,10 @@
             .url = "https://github.com/Immediate-Mode-UI/Nuklear/archive/refs/tags/4.12.8.tar.gz",
             .hash = "N-V-__8AAJRXZACplwL2Rewz3SHQ2nqva-x0Omg539fHlE83",
         },
+        .stb = .{
+            .url = "git+https://github.com/nothings/stb#f1c79c02822848a9bed4315b12c8c8f3761e1296",
+            .hash = "N-V-__8AABQ7TgCnPlp8MP4YA8znrjd6E-ZjpF1rvrS8J_2I",
+        },
     },
     .minimum_zig_version = "0.15.2",
     .paths = .{""},

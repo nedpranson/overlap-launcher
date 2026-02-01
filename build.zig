@@ -9,6 +9,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const stb = b.dependency("stb", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const exe_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
@@ -34,6 +39,7 @@ pub fn build(b: *std.Build) void {
 
     exe.addIncludePath(nuklear.path(""));
     exe.addIncludePath(nuklear.path("demo/d3d9"));
+    exe.addIncludePath(stb.path(""));
     
     exe.addCSourceFile(.{
         .file = b.path("main.c"),

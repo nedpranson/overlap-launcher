@@ -17,6 +17,9 @@
 #include "nuklear.h"
 #include "nuklear_d3d9.h"
 
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
+
 #define WINDOW_WIDTH 300
 #define WINDOW_HEIGHT 400
 
@@ -46,6 +49,8 @@ __declspec(dllexport) void __overlap_ignore_proc(void) {}
 
 #define COL_INV_BG    nk_rgba(255, 255, 255, 255)
 #define COL_INV_TEXT  nk_rgba(0, 0, 0, 255)
+
+static char** procs = NULL;
 
 // | -----------------|
 // | Logo            :|
@@ -157,18 +162,22 @@ WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject,
 
         GetWindowText(hwnd, title, len + 1);
 
+        // todo: listen for focus
+        //       hook proc if not already hooked
+
         switch (event) {
         case EVENT_OBJECT_SHOW:
             printf("object show: %s\n", title);
+            arrput(procs, title);
             break;
         case EVENT_OBJECT_DESTROY:
             printf("object destroy: %s\n", title);
+            free(title);
             break;
         default:
+            free(title);
             break;
         }
-
-        free(title);
     }
 }
 
@@ -453,10 +462,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         }
         nk_input_end(ctx);
 
-        if (nk_begin(ctx, "Demo", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
-            nk_layout_row_static(ctx, 30, 80, 1);
-            nk_button_label(ctx, "button");
-
+        if (nk_begin(ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
+            nk_layout_row_dynamic(ctx, 30, 1);
+            for (size_t i = 0; i < arrlen(procs); i++) {
+                nk_label(ctx, procs[i], NK_TEXT_LEFT);
+            }
         }
         nk_end(ctx);
 
@@ -479,6 +489,11 @@ cleanup:
     if (hWnd) DestroyWindow(hWnd);
     if (wndClassRegistered) UnregisterClassW(wndClass.lpszClassName, wndClass.hInstance);
     if (libModule) FreeLibrary(libModule);
+
+    for (size_t i = 0; i < arrlen(procs); i++) {
+        free(procs[i]);
+    }
+    arrfree(procs);
 
     return result;
 }
