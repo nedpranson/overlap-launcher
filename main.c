@@ -60,46 +60,6 @@ __declspec(dllexport) void __overlap_ignore_proc(void) {}
 // | .                |
 // |------------------|
 
-static LRESULT CALLBACK
-WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_TRAYICON:
-            if (lParam == WM_RBUTTONUP) {
-                POINT point;
-
-                GetCursorPos(&point);
-                SetForegroundWindow(hWnd);
-
-                HMENU hMenu = (HMENU)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-
-                TrackPopupMenu(
-                    hMenu,
-                    TPM_RIGHTBUTTON,
-                    point.x,
-                    point.y,
-                    0,
-                    hWnd,
-                    NULL);
-            }
-            break;
-        case WM_COMMAND:
-            if (LOWORD(wParam) == TRAY_EXIT) {
-                PostQuitMessage(0);
-                return 0;
-            }
-            break;
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
-    }
-
-    if (nk_d3d9_handle_event(hWnd, uMsg, wParam, lParam)) {
-        return 0;
-    }
-
-    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
-}
-
 static HWND GetOwnerWindow(HWND hWnd) {
     HWND hOwner = hWnd;
     HWND hTmp = NULL;
@@ -155,19 +115,78 @@ static char* AllocWindowTextA(HWND hWnd) {
     return text;
 }
 
-//static BOOL CALLBACK
-//EnumWindowsProc(HWND hWnd, LPARAM lParam) {
-    //HWND hTarget = (HWND)lParam;
-    //if (hWnd != hTarget) return TRUE;
+static BOOL CALLBACK
+EnumWindowsProc(HWND hWnd, LPARAM lParam) {
+    return hWnd != (HWND)lParam;
+}
 
-    //char* hWndTitle;
-    //if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
-        //printf("%s\n", hWndTitle);
-        //free(hWndTitle);
-    //}
+static HWND GetForegroundAppWindow() {
+    HWND hWnd = GetForegroundWindow();
+    // todo: figure this out
+    // not sure why, but just checking IsAppWindow alone can succeed sometimes
+    // in this case that window cannot be found in EnumWindows loop
+    // I am probably missing smth with top level-windows
+    if (hWnd && IsTaskbarWindow(hWnd) && !EnumWindows(EnumWindowsProc, (LPARAM)hWnd)) {
+        return hWnd;
+    }
 
-    //return TRUE;
-//}
+    return NULL;
+}
+
+static LRESULT CALLBACK
+WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_TRAYICON:
+            if (lParam == WM_RBUTTONUP) {
+                POINT point;
+
+                GetCursorPos(&point);
+                SetForegroundWindow(hWnd);
+
+                HMENU hMenu = (HMENU)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
+
+                TrackPopupMenu(
+                    hMenu,
+                    TPM_RIGHTBUTTON,
+                    point.x,
+                    point.y,
+                    0,
+                    hWnd,
+                    NULL);
+            }
+            break;
+        case WM_TIMER:
+            // todo: do not use timers
+            // again for some weird reason using FOCUS event
+            // does not fire when opening an application
+            {
+                HWND hWnd;
+                char* title;
+
+                if ((hWnd = GetForegroundAppWindow()) && (title = AllocWindowTextA(hWnd))) {
+                    printf("%s\n", title);
+                    free(title);
+                }
+
+                break;
+            }
+        case WM_COMMAND:
+            if (LOWORD(wParam) == TRAY_EXIT) {
+                PostQuitMessage(0);
+                return 0;
+            }
+            break;
+        case WM_DESTROY:
+            PostQuitMessage(0);
+            return 0;
+    }
+
+    if (nk_d3d9_handle_event(hWnd, uMsg, wParam, lParam)) {
+        return 0;
+    }
+
+    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
 
 //static VOID CALLBACK
 //WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
@@ -462,6 +481,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         //return 1;
     //}
 
+    SetTimer(hWnd, 0, 10 * 1000, NULL);
+
     ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
 
     struct nk_font_atlas *atlas;
@@ -473,15 +494,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     while (true) {
         MSG msg;
         HRESULT hr;
-
-        HWND hWnd;
-        if ((hWnd = GetForegroundWindow())) {
-            char* title;
-            if (IsTaskbarWindow(hWnd) && (title = AllocWindowTextA(hWnd))) {
-                printf("%s\n", title);
-                free(title);
-            }
-        }
 
         nk_input_begin(ctx);
         while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
