@@ -50,21 +50,6 @@ __declspec(dllexport) void __overlap_ignore_proc(void) {}
 #define COL_INV_BG    nk_rgba(255, 255, 255, 255)
 #define COL_INV_TEXT  nk_rgba(0, 0, 0, 255)
 
-// static char** procs = NULL;
-
-struct HookedProcess {
-    HANDLE hProcess;
-    HANDLE hExitObject;
-    char* title;
-};
-
-struct HookedProcessKV {
-    struct HookedProcess value;
-    DWORD key;
-};
-
-static struct HookedProcessKV* hookedProcessesMap = NULL;
-
 // | -----------------|
 // | Logo            :|
 // |------------------|
@@ -170,53 +155,35 @@ static char* AllocWindowTextA(HWND hWnd) {
     return text;
 }
 
-static VOID CALLBACK
-WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
-    (void)hWinEventHook;
-    (void)event;
-    (void)idObject;
-    (void)idChild;
-    (void)idEventThread;
-    (void)dwmsEventTime;
+//static VOID CALLBACK
+//WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
+    //(void)hWinEventHook;
+    //(void)event;
+    //(void)idObject;
+    //(void)idChild;
+    //(void)idEventThread;
+    //(void)dwmsEventTime;
 
-    assert(event == EVENT_OBJECT_FOCUS);
-    if (!IsTaskbarWindow(hWnd)) return;
+    //assert(event == EVENT_OBJECT_FOCUS);
+    //if (!IsTaskbarWindow(hWnd)) return;
 
-    DWORD processId;
-    if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
-        return;
-    }
-
-    struct HookedProcessKV* kv;
-    if ((kv = hmgetp_null(hookedProcessesMap, processId))) {
-        free(kv->value.title);
-        kv->value.title = AllocWindowTextA(hWnd);
-
-        return;
-    }
-
-    HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, processId);
-    if (!hProcess) {
-        return;
-    }
-
-    HANDLE hWaitObject = NULL;
-    //if (!RegisterWaitForSingleObject(
-        //&hWaitObject,
-        //hProcess,
-        //NULL,
-        //(PVOID)(uintptr_t)processId,
-        //INFINITE,
-        //WT_EXECUTEONLYONCE)) {
-        //CloseHandle(hProcess);
+    //DWORD processId;
+    //if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
         //return;
     //}
+//}
 
-    hmput(hookedProcessesMap, 0, ((struct HookedProcess){
-        hProcess,
-        hWaitObject,
-        AllocWindowTextA(hWnd)
-    }));
+static BOOL CALLBACK
+EnumWindowsProc(HWND hWnd, LPARAM lParam) {
+    (void)lParam;
+
+    char* hWndTitle;
+    if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
+        printf("%s\n", hWndTitle);
+        free(hWndTitle);
+    }
+
+    return TRUE;
 }
 
 static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
@@ -341,6 +308,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     (void)pCmdLine;
     (void)nCmdShow;
 
+    AllocConsole();
+
+    freopen("CONOUT$", "w", stdout);
+    freopen("CONOUT$", "w", stderr);
+    freopen("CONIN$", "r", stdin);
+
     HWND hWnd = NULL;
     HMENU hMenu = NULL;
     HMODULE libModule = NULL;
@@ -457,16 +430,20 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     CONTINUE_IF(Shell_NotifyIconW(NIM_ADD, &data));
     shellIconNotified = true;
 
-    hWinEventHook = SetWinEventHook(
-        EVENT_OBJECT_FOCUS,
-        EVENT_OBJECT_FOCUS,
-        NULL,
-        WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    // Smth is off with this cb func!
+    //hWinEventHook = SetWinEventHook(
+        //EVENT_OBJECT_FOCUS,
+        //EVENT_OBJECT_FOCUS,
+        //NULL,
+        //WinEventProc,
+        //0,
+        //0,
+        //WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
-    CONTINUE_IF(hWinEventHook);
+    //CONTINUE_IF(hWinEventHook);
+
+    EnumWindows(EnumWindowsProc, 0);
+
     CONTINUE_IF(SUCCEEDED(CreateD3D9Device(hWnd, &device)));
 
     //HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
@@ -501,10 +478,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         nk_input_end(ctx);
 
         if (nk_begin(ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
-            nk_layout_row_dynamic(ctx, 20, 1);
-            for (int i = 0; i < hmlen(hookedProcessesMap); i++) {
-                nk_label(ctx, hookedProcessesMap[i].value.title, NK_TEXT_LEFT);
-            }
+            //nk_layout_row_dynamic(ctx, 20, 1);
+            //for (int i = 0; i < hmlen(hookedProcessesMap); i++) {
+                //nk_label(ctx, hookedProcessesMap[i].value.title, NK_TEXT_LEFT);
+            //}
         }
         nk_end(ctx);
 
@@ -528,10 +505,7 @@ cleanup:
     if (wndClassRegistered) UnregisterClassW(wndClass.lpszClassName, wndClass.hInstance);
     if (libModule) FreeLibrary(libModule);
 
-    //for (int i = 0; i < arrlen(procs); i++) {
-        //free(procs[i]);
-    //}
-    //arrfree(procs);
+    FreeConsole();
 
     return result;
 }
