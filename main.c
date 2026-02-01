@@ -155,35 +155,36 @@ static char* AllocWindowTextA(HWND hWnd) {
     return text;
 }
 
-static BOOL CALLBACK
-EnumWindowsProc(HWND hWnd, LPARAM lParam) {
-    (void)lParam;
+//static BOOL CALLBACK
+//EnumWindowsProc(HWND hWnd, LPARAM lParam) {
+    //HWND hTarget = (HWND)lParam;
+    //if (hWnd != hTarget) return TRUE;
 
-    char* hWndTitle;
-    if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
-        printf("%s\n", hWndTitle);
-        free(hWndTitle);
-    }
+    //char* hWndTitle;
+    //if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
+        //printf("%s\n", hWndTitle);
+        //free(hWndTitle);
+    //}
 
-    return TRUE;
-}
+    //return TRUE;
+//}
 
-static VOID CALLBACK
-WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
-    (void)hWinEventHook;
-    (void)event;
-    (void)idObject;
-    (void)idChild;
-    (void)idEventThread;
-    (void)dwmsEventTime;
+//static VOID CALLBACK
+//WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
+    //(void)hWinEventHook;
+    //(void)event;
+    //(void)idObject;
+    //(void)idChild;
+    //(void)idEventThread;
+    //(void)dwmsEventTime;
 
-    assert(event == EVENT_OBJECT_FOCUS);
+    //assert(event == EVENT_OBJECT_FOCUS);
 
-    char* hWndTitle;
-    if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
-        printf("focus on: %s\n", hWndTitle);
-        EnumWindows(EnumWindowsProc, 0);
-    }
+    //char* hWndTitle;
+    //if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
+        //printf("focus on: %s\n", hWndTitle);
+        //EnumWindows(EnumWindowsProc, (LPARAM)hWnd);
+    //}
 
     //if (!IsTaskbarWindow(hWnd)) return;
 
@@ -191,7 +192,7 @@ WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject,
     //if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
         //return;
     //}
-}
+//}
 
 static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
     HRESULT hr;
@@ -438,16 +439,16 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     shellIconNotified = true;
 
     // Smth is off with this cb func!
-    hWinEventHook = SetWinEventHook(
-        EVENT_OBJECT_FOCUS,
-        EVENT_OBJECT_FOCUS,
-        NULL,
-        WinEventProc,
-        0,
-        0,
-        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    //hWinEventHook = SetWinEventHook(
+        //EVENT_OBJECT_FOCUS,
+        //EVENT_OBJECT_FOCUS,
+        //NULL,
+        //WinEventProc,
+        //0,
+        //0,
+        //WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
-    CONTINUE_IF(hWinEventHook);
+    //CONTINUE_IF(hWinEventHook);
 
     //EnumWindows(EnumWindowsProc, 0);
 
@@ -472,6 +473,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     while (true) {
         MSG msg;
         HRESULT hr;
+
+        HWND hWnd;
+        if ((hWnd = GetForegroundWindow())) {
+            char* title;
+            if (IsTaskbarWindow(hWnd) && (title = AllocWindowTextA(hWnd))) {
+                printf("%s\n", title);
+                free(title);
+            }
+        }
 
         nk_input_begin(ctx);
         while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
