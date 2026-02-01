@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
 
     exe.linkLibC();
     exe.linkSystemLibrary("user32");
+    exe.linkSystemLibrary("dwmapi");
     exe.linkSystemLibrary("d3d9");
 
     const flags = &[_][]const u8 {

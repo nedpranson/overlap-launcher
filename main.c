@@ -1,8 +1,8 @@
-#include "winerror.h"
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
+#include <dwmapi.h>
 #include <stdbool.h>
 
 #define NK_INCLUDE_FIXED_TYPES
@@ -17,8 +17,8 @@
 #include "nuklear.h"
 #include "nuklear_d3d9.h"
 
-#define WINDOW_WIDTH 400
-#define WINDOW_HEIGHT 600
+#define WINDOW_WIDTH 300
+#define WINDOW_HEIGHT 400
 
 #define WM_TRAYICON (WM_USER + 1)
 
@@ -95,6 +95,81 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     }
 
     return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+}
+
+static HWND GetOwnerWindow(HWND hWnd) {
+    HWND hOwner = hWnd;
+    HWND hTmp = NULL;
+
+    while ((hTmp = GetWindow(hOwner, GW_OWNER))) {
+        hOwner = hTmp;
+    }
+
+    return hOwner;
+}
+
+static bool 
+IsAppWindow(HWND hWnd) {
+    DWORD exStyles = GetWindowLong(hWnd, GWL_EXSTYLE);
+    return exStyles && !((exStyles & WS_EX_TOOLWINDOW) && !(exStyles & WS_EX_APPWINDOW));
+}
+
+static bool IsWin10BackgroundWindow(HWND hWnd) {
+  BOOL flag = FALSE;
+  DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, &flag, sizeof(BOOL));
+  return flag;
+}
+
+static bool IsTaskbarWindow(HWND hWnd) {
+    if (IsWindowVisible(hWnd)) {
+        HWND hOwner = GetOwnerWindow(hWnd);
+
+        if (GetLastActivePopup(hOwner) != hWnd) {
+            return false;
+        }
+
+        if (IsWindowVisible(hOwner) && IsAppWindow(hOwner) && !IsWin10BackgroundWindow(hOwner)) {
+            return true;
+        }
+
+        if (IsAppWindow(hWnd) && !IsWin10BackgroundWindow(hWnd)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static VOID CALLBACK
+WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
+    (void)hWinEventHook;
+    (void)event;
+    (void)idObject;
+    (void)idChild;
+    (void)idEventThread;
+    (void)dwmsEventTime;
+
+    if (IsTaskbarWindow(hwnd)) {
+        int len = GetWindowTextLength(hwnd);
+        if (len == 0) return;
+
+        char* title = (char*)malloc(len + 1);
+        if (title == NULL) return;
+
+        GetWindowText(hwnd, title, len + 1);
+
+        switch (event) {
+        case EVENT_OBJECT_SHOW:
+            printf("object show: %s\n", title);
+            break;
+        case EVENT_OBJECT_DESTROY:
+            printf("object destroy: %s\n", title);
+            break;
+        default:
+            break;
+        }
+
+        free(title);
+    }
 }
 
 static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
@@ -222,6 +297,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     HWND hWnd = NULL;
     HMENU hMenu = NULL;
     HMODULE libModule = NULL;
+    HWINEVENTHOOK hWinEventHook = NULL;
 
     bool wndClassRegistered = false;
     bool shellIconNotified = false;
@@ -270,20 +346,21 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     FARPROC proc = GetProcAddress(libModule, "__overlap_hook_proc");
     CONTINUE_IF(proc);
 
-    HICON icon = LoadImageW(
+    HICON hIcon = LoadImageW(
         NULL,
         (LPWSTR)IDI_APPLICATION,
         IMAGE_ICON,
-        16,
-        16,
+        32,
+        32,
         LR_SHARED);
 
-    CONTINUE_IF(icon);
+    CONTINUE_IF(hIcon);
 
     WNDCLASSW wndClass = {0};
     wndClass.style = CS_DBLCLKS;
     wndClass.lpfnWndProc = WndProc;
     wndClass.hInstance = hInstance;
+    wndClass.hIcon = hIcon;
     wndClass.lpszClassName = L"OverlapLauncherClass";
 
     CONTINUE_IF(RegisterClassW(&wndClass));
@@ -326,13 +403,23 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     data.hWnd = hWnd;
     data.uID = 1;
     data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
-    data.hIcon = icon;
+    data.hIcon = hIcon;
     data.uCallbackMessage = WM_TRAYICON;
     lstrcpyW(data.szTip, L"Overlap");
 
     CONTINUE_IF(Shell_NotifyIconW(NIM_ADD, &data));
     shellIconNotified = true;
 
+    hWinEventHook = SetWinEventHook(
+        EVENT_OBJECT_DESTROY,
+        EVENT_OBJECT_SHOW,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+
+    CONTINUE_IF(hWinEventHook);
     CONTINUE_IF(SUCCEEDED(CreateD3D9Device(hWnd, &device)));
 
     //HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
@@ -386,6 +473,7 @@ cleanup:
     //UnhookWindowsHookEx(hook);
     if (ctx) nk_d3d9_shutdown();
     if (device) IDirect3DDevice9Ex_Release(device);
+    if (hWinEventHook) UnhookWinEvent(hWinEventHook);
     if (shellIconNotified) Shell_NotifyIconW(NIM_DELETE, &data);
     if (hMenu) DestroyMenu(hMenu);
     if (hWnd) DestroyWindow(hWnd);
