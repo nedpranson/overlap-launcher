@@ -50,7 +50,20 @@ __declspec(dllexport) void __overlap_ignore_proc(void) {}
 #define COL_INV_BG    nk_rgba(255, 255, 255, 255)
 #define COL_INV_TEXT  nk_rgba(0, 0, 0, 255)
 
-static char** procs = NULL;
+// static char** procs = NULL;
+
+struct HookedProcess {
+    HANDLE hProcess;
+    HANDLE hExitObject;
+    char* title;
+};
+
+struct HookedProcessKV {
+    struct HookedProcess value;
+    DWORD key;
+};
+
+static struct HookedProcessKV* hookedProcessesMap = NULL;
 
 // | -----------------|
 // | Logo            :|
@@ -144,8 +157,21 @@ static bool IsTaskbarWindow(HWND hWnd) {
     return false;
 }
 
+static char* AllocWindowTextA(HWND hWnd) {
+    int len = GetWindowTextLengthA(hWnd);
+    if (len == 0) {
+        return NULL;
+    }
+
+    char* text = (char*)malloc(len + 1);
+    if (text) {
+        GetWindowTextA(hWnd, text, len + 1);
+    }
+    return text;
+}
+
 static VOID CALLBACK
-WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
+WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
     (void)hWinEventHook;
     (void)event;
     (void)idObject;
@@ -153,32 +179,44 @@ WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject,
     (void)idEventThread;
     (void)dwmsEventTime;
 
-    if (IsTaskbarWindow(hwnd)) {
-        int len = GetWindowTextLength(hwnd);
-        if (len == 0) return;
+    assert(event == EVENT_OBJECT_FOCUS);
+    if (!IsTaskbarWindow(hWnd)) return;
 
-        char* title = (char*)malloc(len + 1);
-        if (title == NULL) return;
-
-        GetWindowText(hwnd, title, len + 1);
-
-        // todo: listen for focus
-        //       hook proc if not already hooked
-
-        switch (event) {
-        case EVENT_OBJECT_SHOW:
-            printf("object show: %s\n", title);
-            arrput(procs, title);
-            break;
-        case EVENT_OBJECT_DESTROY:
-            printf("object destroy: %s\n", title);
-            free(title);
-            break;
-        default:
-            free(title);
-            break;
-        }
+    DWORD processId;
+    if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
+        return;
     }
+
+    struct HookedProcessKV* kv;
+    if ((kv = hmgetp_null(hookedProcessesMap, processId))) {
+        free(kv->value.title);
+        kv->value.title = AllocWindowTextA(hWnd);
+
+        return;
+    }
+
+    HANDLE hProcess = OpenProcess(SYNCHRONIZE, FALSE, processId);
+    if (!hProcess) {
+        return;
+    }
+
+    HANDLE hWaitObject = NULL;
+    //if (!RegisterWaitForSingleObject(
+        //&hWaitObject,
+        //hProcess,
+        //NULL,
+        //(PVOID)(uintptr_t)processId,
+        //INFINITE,
+        //WT_EXECUTEONLYONCE)) {
+        //CloseHandle(hProcess);
+        //return;
+    //}
+
+    hmput(hookedProcessesMap, 0, ((struct HookedProcess){
+        hProcess,
+        hWaitObject,
+        AllocWindowTextA(hWnd)
+    }));
 }
 
 static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
@@ -420,8 +458,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     shellIconNotified = true;
 
     hWinEventHook = SetWinEventHook(
-        EVENT_OBJECT_DESTROY,
-        EVENT_OBJECT_SHOW,
+        EVENT_OBJECT_FOCUS,
+        EVENT_OBJECT_FOCUS,
         NULL,
         WinEventProc,
         0,
@@ -463,9 +501,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         nk_input_end(ctx);
 
         if (nk_begin(ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
-            nk_layout_row_dynamic(ctx, 30, 1);
-            for (size_t i = 0; i < arrlen(procs); i++) {
-                nk_label(ctx, procs[i], NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ctx, 20, 1);
+            for (int i = 0; i < hmlen(hookedProcessesMap); i++) {
+                nk_label(ctx, hookedProcessesMap[i].value.title, NK_TEXT_LEFT);
             }
         }
         nk_end(ctx);
@@ -490,10 +528,10 @@ cleanup:
     if (wndClassRegistered) UnregisterClassW(wndClass.lpszClassName, wndClass.hInstance);
     if (libModule) FreeLibrary(libModule);
 
-    for (size_t i = 0; i < arrlen(procs); i++) {
-        free(procs[i]);
-    }
-    arrfree(procs);
+    //for (int i = 0; i < arrlen(procs); i++) {
+        //free(procs[i]);
+    //}
+    //arrfree(procs);
 
     return result;
 }
