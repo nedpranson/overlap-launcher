@@ -60,6 +60,16 @@ __declspec(dllexport) void __overlap_ignore_proc(void) {}
 // | .                |
 // |------------------|
 
+struct HookedProcessesKV {
+    HANDLE value;
+    DWORD key;
+};
+
+struct Context {
+    HMENU hMenu;
+    struct HookedProcessesKV* hooked_processes;
+};
+
 static HWND GetOwnerWindow(HWND hWnd) {
     HWND hOwner = hWnd;
     HWND hTmp = NULL;
@@ -135,6 +145,8 @@ static HWND GetForegroundAppWindow() {
 
 static LRESULT CALLBACK
 WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    struct Context* ctx = (struct Context*)(lParam);
+
     switch (uMsg) {
         case WM_TRAYICON:
             if (lParam == WM_RBUTTONUP) {
@@ -143,10 +155,8 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 GetCursorPos(&point);
                 SetForegroundWindow(hWnd);
 
-                HMENU hMenu = (HMENU)GetWindowLongPtrW(hWnd, GWLP_USERDATA);
-
                 TrackPopupMenu(
-                    hMenu,
+                    ctx->hMenu,
                     TPM_RIGHTBUTTON,
                     point.x,
                     point.y,
@@ -162,8 +172,11 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             {
                 HWND hWnd;
                 char* title;
+                DWORD processId;
 
-                if ((hWnd = GetForegroundAppWindow()) && (title = AllocWindowTextA(hWnd))) {
+                if ((hWnd = GetForegroundAppWindow()) && (title = AllocWindowTextA(hWnd)) && GetWindowThreadProcessId(hWnd, &processId) > 0) {
+                    hmput(ctx->hooked_processes, processId, NULL);
+
                     printf("%s\n", title);
                     free(title);
                 }
@@ -344,7 +357,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     HWND hWnd = NULL;
     HMENU hMenu = NULL;
     HMODULE libModule = NULL;
-    HWINEVENTHOOK hWinEventHook = NULL;
+    //HWINEVENTHOOK hWinEventHook = NULL;
 
     bool wndClassRegistered = false;
     bool shellIconNotified = false;
@@ -443,7 +456,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING, TRAY_EXIT, L"Exit");
 
-    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)hMenu);
+    struct Context context = {0};
+    context.hMenu = hMenu;
+
+    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)&context);
 
     NOTIFYICONDATAW data = {0};
     data.cbSize = sizeof(data);
@@ -507,10 +523,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         nk_input_end(ctx);
 
         if (nk_begin(ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
-            //nk_layout_row_dynamic(ctx, 20, 1);
-            //for (int i = 0; i < hmlen(hookedProcessesMap); i++) {
-                //nk_label(ctx, hookedProcessesMap[i].value.title, NK_TEXT_LEFT);
-            //}
+            nk_layout_row_dynamic(ctx, 20, 1);
+            for (int i = 0; i < hmlen(context.hooked_processes); i++) {
+                nk_label(ctx, "!!!", NK_TEXT_LEFT);
+            }
         }
         nk_end(ctx);
 
@@ -524,10 +540,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
 
 cleanup:
 
+    hmfree(context.hooked_processes);
+
     //UnhookWindowsHookEx(hook);
     if (ctx) nk_d3d9_shutdown();
     if (device) IDirect3DDevice9Ex_Release(device);
-    if (hWinEventHook) UnhookWinEvent(hWinEventHook);
+    //if (hWinEventHook) UnhookWinEvent(hWinEventHook);
     if (shellIconNotified) Shell_NotifyIconW(NIM_DELETE, &data);
     if (hMenu) DestroyMenu(hMenu);
     if (hWnd) DestroyWindow(hWnd);
