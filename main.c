@@ -155,24 +155,6 @@ static char* AllocWindowTextA(HWND hWnd) {
     return text;
 }
 
-//static VOID CALLBACK
-//WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
-    //(void)hWinEventHook;
-    //(void)event;
-    //(void)idObject;
-    //(void)idChild;
-    //(void)idEventThread;
-    //(void)dwmsEventTime;
-
-    //assert(event == EVENT_OBJECT_FOCUS);
-    //if (!IsTaskbarWindow(hWnd)) return;
-
-    //DWORD processId;
-    //if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
-        //return;
-    //}
-//}
-
 static BOOL CALLBACK
 EnumWindowsProc(HWND hWnd, LPARAM lParam) {
     (void)lParam;
@@ -184,6 +166,31 @@ EnumWindowsProc(HWND hWnd, LPARAM lParam) {
     }
 
     return TRUE;
+}
+
+static VOID CALLBACK
+WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
+    (void)hWinEventHook;
+    (void)event;
+    (void)idObject;
+    (void)idChild;
+    (void)idEventThread;
+    (void)dwmsEventTime;
+
+    assert(event == EVENT_OBJECT_FOCUS);
+
+    char* hWndTitle;
+    if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
+        printf("focus on: %s\n", hWndTitle);
+        EnumWindows(EnumWindowsProc, 0);
+    }
+
+    //if (!IsTaskbarWindow(hWnd)) return;
+
+    //DWORD processId;
+    //if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
+        //return;
+    //}
 }
 
 static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
@@ -431,18 +438,18 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     shellIconNotified = true;
 
     // Smth is off with this cb func!
-    //hWinEventHook = SetWinEventHook(
-        //EVENT_OBJECT_FOCUS,
-        //EVENT_OBJECT_FOCUS,
-        //NULL,
-        //WinEventProc,
-        //0,
-        //0,
-        //WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    hWinEventHook = SetWinEventHook(
+        EVENT_OBJECT_FOCUS,
+        EVENT_OBJECT_FOCUS,
+        NULL,
+        WinEventProc,
+        0,
+        0,
+        WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
-    //CONTINUE_IF(hWinEventHook);
+    CONTINUE_IF(hWinEventHook);
 
-    EnumWindows(EnumWindowsProc, 0);
+    //EnumWindows(EnumWindowsProc, 0);
 
     CONTINUE_IF(SUCCEEDED(CreateD3D9Device(hWnd, &device)));
 
