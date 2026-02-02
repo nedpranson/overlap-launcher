@@ -79,19 +79,19 @@ static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process** map) {
     }
 
     struct process_context* ctx = malloc(sizeof(struct process_context));
-    ctx->wnd = cb_wnd;
-    ctx->pid = pid;
-
     if (!ctx) {
         CloseHandle(proc);
         return;
     }
 
+    ctx->wnd = cb_wnd;
+    ctx->pid = pid;
+
     if (!RegisterWaitForSingleObject(
         &exit,
         proc,
         ProcessExitCallback,
-        &ctx,
+        ctx,
         INFINITE,
         WT_EXECUTEONLYONCE)) {
 
