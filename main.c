@@ -1,3 +1,4 @@
+#define UNICODE
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -23,225 +24,32 @@
 #define WINDOW_WIDTH 300
 #define WINDOW_HEIGHT 400
 
+#define CONTINUE_IF(ok) if (!ok) { \
+    res = 1; \
+    goto cleanup; \
+}
+
 #define WM_TRAYICON (WM_USER + 1)
 
 #define TRAY_TITLE 1
 #define TRAY_EXIT 2
 
-__declspec(dllexport) void __overlap_ignore_proc(void) {}
-
-#define CONTINUE_IF(ok) if (!ok) { \
-    result = 1; \
-    goto cleanup; \
-}
-
-#define COL_BG        nk_rgba(16, 25, 30, 255)   // #10191E
-#define COL_BG_SOFT   nk_rgba(22, 32, 38, 255)
-#define COL_BG_HOVER  nk_rgba(28, 38, 44, 255)
-
-#define COL_TEXT      nk_rgba(255, 255, 255, 255)
-#define COL_TEXT_MUTED nk_rgba(170, 180, 185, 255)
-
-#define COL_BORDER    nk_rgba(40, 55, 60, 255)
-
-#define COL_ACCENT    nk_rgba(0, 223, 162, 255) // #00DFA2
-#define COL_ACCENT_SOFT nk_rgba(0, 223, 162, 120)
-
-#define COL_INV_BG    nk_rgba(255, 255, 255, 255)
-#define COL_INV_TEXT  nk_rgba(0, 0, 0, 255)
-
-// | -----------------|
-// | Logo            :|
-// |------------------|
-// | O Hollow Knight  |
-// | O Some other...  |
-// | ...              |
-// | ..               |
-// | .                |
-// |------------------|
-
-struct HookedProcessesKV {
-    char* value;
+struct map {
     DWORD key;
+
+    HANDLE proc;
+    HANDLE exit;
 };
 
-struct Context {
-    HMENU hMenu;
-    struct HookedProcessesKV* hooked_processes;
+struct context {
+    HMENU menu;
 };
 
-static HWND GetOwnerWindow(HWND hWnd) {
-    HWND hOwner = hWnd;
-    HWND hTmp = NULL;
-
-    while ((hTmp = GetWindow(hOwner, GW_OWNER))) {
-        hOwner = hTmp;
-    }
-
-    return hOwner;
-}
-
-static bool 
-IsAppWindow(HWND hWnd) {
-    DWORD exStyles = GetWindowLong(hWnd, GWL_EXSTYLE);
-    return exStyles && !((exStyles & WS_EX_TOOLWINDOW) && !(exStyles & WS_EX_APPWINDOW));
-}
-
-static bool IsWin10BackgroundWindow(HWND hWnd) {
-  BOOL flag = FALSE;
-  DwmGetWindowAttribute(hWnd, DWMWA_CLOAKED, &flag, sizeof(BOOL));
-  return flag;
-}
-
-static bool IsTaskbarWindow(HWND hWnd) {
-    if (IsWindowVisible(hWnd)) {
-        HWND hOwner = GetOwnerWindow(hWnd);
-
-        if (GetLastActivePopup(hOwner) != hWnd) {
-            return false;
-        }
-
-        if (IsWindowVisible(hOwner) && IsAppWindow(hOwner) && !IsWin10BackgroundWindow(hOwner)) {
-            return true;
-        }
-
-        if (IsAppWindow(hWnd) && !IsWin10BackgroundWindow(hWnd)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-//static char* AllocWindowTextA(HWND hWnd) {
-    //int len = GetWindowTextLengthA(hWnd);
-    //if (len == 0) {
-        //return NULL;
-    //}
-
-    //char* text = (char*)malloc(len + 1);
-    //if (text) {
-        //GetWindowTextA(hWnd, text, len + 1);
-    //}
-    //return text;
-//}
-
-static BOOL CALLBACK
-EnumWindowsProc(HWND hWnd, LPARAM lParam) {
-    return hWnd != (HWND)lParam;
-}
-
-static HWND GetForegroundAppWindow() {
-    HWND hWnd = GetForegroundWindow();
-    // todo: figure this out
-    // not sure why, but just checking IsAppWindow alone can succeed sometimes
-    // in this case that window cannot be found in EnumWindows loop
-    // I am probably missing smth with top level-windows
-    if (hWnd && IsTaskbarWindow(hWnd) && !EnumWindows(EnumWindowsProc, (LPARAM)hWnd)) {
-        return hWnd;
-    }
-
-    return NULL;
-}
-
-static LRESULT CALLBACK
-WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    struct Context* ctx = (struct Context*)(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
-
-    switch (uMsg) {
-        case WM_TRAYICON:
-            if (lParam == WM_RBUTTONUP) {
-                POINT point;
-
-                GetCursorPos(&point);
-                SetForegroundWindow(hWnd);
-
-                TrackPopupMenu(
-                    ctx->hMenu,
-                    TPM_RIGHTBUTTON,
-                    point.x,
-                    point.y,
-                    0,
-                    hWnd,
-                    NULL);
-            }
-            break;
-        case WM_TIMER:
-            // todo: do not use timers
-            // again for some weird reason using FOCUS event
-            // does not fire when opening an application
-            {
-                HWND hWnd;
-                DWORD processId;
-
-                if ((hWnd = GetForegroundAppWindow()) && GetWindowThreadProcessId(hWnd, &processId) > 0) {
-
-                    HANDLE hProcess;
-
-                    char path[MAX_PATH];
-                    DWORD path_len = MAX_PATH;
-
-                    hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
-                    if (hProcess && QueryFullProcessImageNameA(hProcess, 0, path, &path_len)) {
-                        struct HookedProcessesKV* kv = hmgetp_null(ctx->hooked_processes, processId);
-                        if (kv) {
-                            free(kv->value);
-                            kv->value = strdup(path);
-                        } else {
-                            hmput(ctx->hooked_processes, processId, strdup(path));
-                        }
-
-                        printf("%lu, %s\n", processId, path);
-                        CloseHandle(hProcess);
-                    }
-                }
-
-                break;
-            }
-        case WM_COMMAND:
-            if (LOWORD(wParam) == TRAY_EXIT) {
-                PostQuitMessage(0);
-                return 0;
-            }
-            break;
-        case WM_DESTROY:
-            PostQuitMessage(0);
-            return 0;
-    }
-
-    if (nk_d3d9_handle_event(hWnd, uMsg, wParam, lParam)) {
-        return 0;
-    }
-
-    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
-}
-
-//static VOID CALLBACK
-//WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime) {
-    //(void)hWinEventHook;
-    //(void)event;
-    //(void)idObject;
-    //(void)idChild;
-    //(void)idEventThread;
-    //(void)dwmsEventTime;
-
-    //assert(event == EVENT_OBJECT_FOCUS);
-
-    //char* hWndTitle;
-    //if (IsTaskbarWindow(hWnd) && (hWndTitle = AllocWindowTextA(hWnd))) {
-        //printf("focus on: %s\n", hWndTitle);
-        //EnumWindows(EnumWindowsProc, (LPARAM)hWnd);
-    //}
-
-    //if (!IsTaskbarWindow(hWnd)) return;
-
-    //DWORD processId;
-    //if (GetWindowThreadProcessId(hWnd, &processId) == 0) {
-        //return;
-    //}
-//}
-
-static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
+static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
     HRESULT hr;
+
+    IDirect3D9Ex *d3d9;
+    IDirect3DDevice9Ex* d3d9_device;
 
     D3DPRESENT_PARAMETERS params = { 0 };
     params.PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
@@ -251,36 +59,45 @@ static HRESULT CreateD3D9Device(HWND hWnd, IDirect3DDevice9Ex** device) {
     params.BackBufferCount = 1;
     params.MultiSampleType = D3DMULTISAMPLE_NONE;
     params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    params.hDeviceWindow = hWnd;
+    params.hDeviceWindow = wnd;
     params.EnableAutoDepthStencil = TRUE;
     params.AutoDepthStencilFormat = D3DFMT_D24S8;
     params.Flags = D3DPRESENTFLAG_DISCARD_DEPTHSTENCIL;
     params.Windowed = TRUE;
 
-    IDirect3D9Ex* d3d9;
     hr = Direct3DCreate9Ex(D3D_SDK_VERSION, &d3d9);
     if (FAILED(hr)) {
         return hr;
     }
-
+    
     hr = IDirect3D9Ex_CreateDeviceEx(
         d3d9,
         D3DADAPTER_DEFAULT,
         D3DDEVTYPE_HAL,
-        hWnd,
+        wnd,
         D3DCREATE_HARDWARE_VERTEXPROCESSING | D3DCREATE_PUREDEVICE | D3DCREATE_FPU_PRESERVE,
         &params,
         NULL,
-        device);
+        &d3d9_device);
 
     IDirect3D9Ex_Release(d3d9);
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    hr = IDirect3DDevice9Ex_QueryInterface(
+        d3d9_device,
+        &IID_IDirect3DDevice9,
+        (void**)device);
+
+    IDirect3DDevice9Ex_Release(d3d9_device);
     return hr;
 }
 
-static HRESULT RenderD3D9Objects(IDirect3DDevice9Ex* device) {
+static HRESULT render_d3d9_objects(IDirect3DDevice9* device) {
     HRESULT hr;
 
-    hr = IDirect3DDevice9Ex_Clear(
+    hr = IDirect3DDevice9_Clear(
         device,
         0,
         NULL,
@@ -290,77 +107,53 @@ static HRESULT RenderD3D9Objects(IDirect3DDevice9Ex* device) {
         return hr;
     }
 
-    hr = IDirect3DDevice9Ex_BeginScene(device);
+    hr = IDirect3DDevice9_BeginScene(device);
     if (FAILED(hr)) {
         return hr;
     }
 
     nk_d3d9_render(NK_ANTI_ALIASING_ON);
 
-    hr = IDirect3DDevice9Ex_EndScene(device);
+    hr = IDirect3DDevice9_EndScene(device);
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = IDirect3DDevice9Ex_PresentEx(device, NULL, NULL, NULL, NULL, 0);
+    hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
     return hr;
 }
 
-static void SetDarkTheme(struct nk_context* nk_ctx) {
-    struct nk_color table[NK_COLOR_COUNT];
+static LRESULT CALLBACK
+WndProc(HWND hWnd,
+        UINT uMsg,
+        WPARAM wParam,
+        LPARAM lParam) {
 
-    // todo: pick actual nice colors
+    switch (uMsg) {
+    case WM_COMMAND:
+        DWORD cmd = LOWORD(wParam);
+        if (cmd == TRAY_EXIT) {
+            PostQuitMessage(0);
+            return 0;
+        }
+        break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
 
-    table[NK_COLOR_TEXT] = COL_TEXT;
-    table[NK_COLOR_WINDOW] = COL_BG;
-    table[NK_COLOR_HEADER] = COL_BG_SOFT;
-    table[NK_COLOR_BORDER] = COL_BORDER;
-
-    table[NK_COLOR_BUTTON] = COL_BG_SOFT;
-    table[NK_COLOR_BUTTON_HOVER] = COL_BG_HOVER;
-    table[NK_COLOR_BUTTON_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_TOGGLE] = COL_BG_SOFT;
-    table[NK_COLOR_TOGGLE_HOVER] = COL_BG_HOVER;
-    table[NK_COLOR_TOGGLE_CURSOR] = COL_ACCENT;
-
-    table[NK_COLOR_SELECT] = COL_BG_SOFT;
-    table[NK_COLOR_SELECT_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_SLIDER] = COL_BG_SOFT;
-    table[NK_COLOR_SLIDER_CURSOR] = COL_ACCENT_SOFT;
-    table[NK_COLOR_SLIDER_CURSOR_HOVER] = COL_ACCENT;
-    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_PROPERTY] = COL_BG_SOFT;
-    table[NK_COLOR_EDIT] = COL_BG_SOFT;
-    table[NK_COLOR_EDIT_CURSOR] = COL_ACCENT;
-
-    table[NK_COLOR_COMBO] = COL_BG_SOFT;
-
-    table[NK_COLOR_CHART] = COL_BG_SOFT;
-    table[NK_COLOR_CHART_COLOR] = COL_ACCENT;
-    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = COL_ACCENT;
-
-    table[NK_COLOR_SCROLLBAR] = COL_BG_SOFT;
-    table[NK_COLOR_SCROLLBAR_CURSOR] = COL_BG_HOVER;
-    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = COL_ACCENT_SOFT;
-    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = COL_ACCENT;
-
-    table[NK_COLOR_TAB_HEADER] = COL_BG_SOFT;
-
-    table[NK_COLOR_KNOB] = COL_BG_SOFT;
-    table[NK_COLOR_KNOB_CURSOR] = COL_ACCENT_SOFT;
-    table[NK_COLOR_KNOB_CURSOR_HOVER] = COL_ACCENT;
-    table[NK_COLOR_KNOB_CURSOR_ACTIVE] = COL_ACCENT;
-
-    nk_style_from_table(nk_ctx, table);
+    if (nk_d3d9_handle_event(hWnd, uMsg, wParam, lParam)) {
+        return 0;
+    }
+    
+    return DefWindowProc(hWnd, uMsg, wParam, lParam);
 }
 
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nCmdShow) {
-    (void)hPrevInstance;
-    (void)pCmdLine;
-    (void)nCmdShow;
+int APIENTRY
+WinMain(HINSTANCE hInstance,
+        HINSTANCE /*hPrevInstance*/,
+        PSTR /*pCmdLine*/,
+        int /*nCmdShow*/) {
 
     AllocConsole();
 
@@ -368,90 +161,52 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     freopen("CONOUT$", "w", stderr);
     freopen("CONIN$", "r", stdin);
 
-    HWND hWnd = NULL;
-    HMENU hMenu = NULL;
-    HMODULE libModule = NULL;
-    //HWINEVENTHOOK hWinEventHook = NULL;
+    int res = 0;
 
-    bool wndClassRegistered = false;
-    bool shellIconNotified = false;
+    HICON icon = NULL;
 
-    IDirect3DDevice9Ex *device = NULL;
+    HWND wnd = NULL;
+    HMENU menu = NULL;
+
+    bool wnd_class_registered = false;
+    bool shell_icon_notified = false;
+
+    IDirect3DDevice9 *device = NULL;
     struct nk_context* nk_ctx = NULL;
-    
-    int result = 0;
 
-    int bId = MessageBoxW(
+    icon = LoadImage(
         NULL,
-        L"Overlap is currently in ALPHA release.\n\n"
-        L"You should expect crashes, instability, and unexpected behavior.\n\n"
-        L"If you encounter any issues, feel free to report them at:\n"
-        L"https://github.com/nedpranson/overlap/issues\n\n"
-        L"Do you want to continue?",
-        L"Overlap – Alpha Warning",
-        MB_ICONWARNING | MB_OKCANCEL | MB_DEFBUTTON2);
-
-    if (bId != IDOK) {
-        return 0;
-    }
-
-    MessageBoxW(
-        NULL,
-        L"Overlap will not be updated automatically for now.\n\n"
-        L"Any future updates must be manually downloaded from the Overlap GitHub repository:\n"
-        L"https://github.com/nedpranson/overlap\n\n"
-        L"Click OK to proceed.",
-        L"Overlap – Update Notice",
-        MB_ICONINFORMATION | MB_OK);
-
-    libModule = LoadLibraryA("overlap.dll");
-    if (!libModule) {
-        MessageBoxW(
-            NULL,
-            L"Ensure `overlap.dll` exists in the launcher's root directory.\n\n"
-            L"Otherwise, download it from the Overlap GitHub repository:\n"
-            L"https://github.com/nedpranson/overlap/releases/latest",
-            L"Overlap – Failed to Load `overlap.dll`.",
-            MB_ICONERROR | MB_OK);
-
-        return 1;
-    }
-
-    FARPROC proc = GetProcAddress(libModule, "__overlap_hook_proc");
-    CONTINUE_IF(proc);
-
-    HICON hIcon = LoadImageW(
-        NULL,
-        (LPWSTR)IDI_APPLICATION,
+        IDI_APPLICATION,
         IMAGE_ICON,
         32,
         32,
         LR_SHARED);
+    CONTINUE_IF(icon);
 
-    CONTINUE_IF(hIcon);
+    WNDCLASS wnd_class = {0};
+    wnd_class.style = CS_DBLCLKS;
+    wnd_class.lpfnWndProc = WndProc;
+    wnd_class.hInstance = hInstance;
+    wnd_class.hIcon = icon;
+    wnd_class.lpszClassName = TEXT("OverlapLauncherClass");
 
-    WNDCLASSW wndClass = {0};
-    wndClass.style = CS_DBLCLKS;
-    wndClass.lpfnWndProc = WndProc;
-    wndClass.hInstance = hInstance;
-    wndClass.hIcon = hIcon;
-    wndClass.lpszClassName = L"OverlapLauncherClass";
-
-    CONTINUE_IF(RegisterClassW(&wndClass));
-    wndClassRegistered = true;
-
+    CONTINUE_IF(RegisterClass(&wnd_class));
+    wnd_class_registered = true;
+    
     RECT rect = { 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT };
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+
     CONTINUE_IF(AdjustWindowRectEx(
         &rect,
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        style,
         FALSE,
         WS_EX_APPWINDOW));
 
-    hWnd = CreateWindowExW(
+    wnd = CreateWindowEx(
         WS_EX_APPWINDOW,
-        wndClass.lpszClassName,
-        L"Overlap Launcher",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE,
+        wnd_class.lpszClassName,
+        TEXT("Overlap Launcher"),
+        style,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         rect.right - rect.left,
@@ -460,60 +215,30 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
         NULL,
         hInstance,
         NULL);
+    CONTINUE_IF(wnd);
 
-    CONTINUE_IF(hWnd);
+    menu = CreatePopupMenu();
+    CONTINUE_IF(menu);
 
-    hMenu = CreatePopupMenu();
-    CONTINUE_IF(hMenu);
+    CONTINUE_IF(AppendMenu(menu, MF_STRING, TRAY_TITLE, TEXT("Overlap")));
+    CONTINUE_IF(AppendMenu(menu, MF_SEPARATOR, 0, NULL));
+    CONTINUE_IF(AppendMenu(menu, MF_STRING, TRAY_EXIT, TEXT("Exit")));
 
-    AppendMenuW(hMenu, MF_STRING, TRAY_TITLE, L"Overlap");
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(hMenu, MF_STRING, TRAY_EXIT, L"Exit");
-
-    struct Context ctx = {0};
-    ctx.hMenu = hMenu;
-
-    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)&ctx);
-
-    NOTIFYICONDATAW data = {0};
+    NOTIFYICONDATA data = {0};
     data.cbSize = sizeof(data);
-    data.hWnd = hWnd;
+    data.hWnd = wnd;
     data.uID = 1;
     data.uFlags = NIF_ICON | NIF_TIP | NIF_MESSAGE;
-    data.hIcon = hIcon;
+    data.hIcon = icon;
     data.uCallbackMessage = WM_TRAYICON;
-    lstrcpyW(data.szTip, L"Overlap");
+    lstrcpy(data.szTip, TEXT("Overlap"));
 
-    CONTINUE_IF(Shell_NotifyIconW(NIM_ADD, &data));
-    shellIconNotified = true;
+    CONTINUE_IF(Shell_NotifyIcon(NIM_ADD, &data));
+    shell_icon_notified = true;
 
-    // Smth is off with this cb func!
-    //hWinEventHook = SetWinEventHook(
-        //EVENT_OBJECT_FOCUS,
-        //EVENT_OBJECT_FOCUS,
-        //NULL,
-        //WinEventProc,
-        //0,
-        //0,
-        //WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    CONTINUE_IF(SUCCEEDED(create_d3d9_device(wnd, &device)));
 
-    //CONTINUE_IF(hWinEventHook);
-
-    //EnumWindows(EnumWindowsProc, 0);
-
-    CONTINUE_IF(SUCCEEDED(CreateD3D9Device(hWnd, &device)));
-
-    //HHOOK hook = SetWindowsHookEx(WH_CBT, (HOOKPROC)proc, libModule, 0);
-    //if (!hook) {
-        //Shell_NotifyIconW(NIM_DELETE, &data);
-        //DestroyMenu(hMenu);
-        //FreeLibrary(libModule);
-        //return 1;
-    //}
-
-    SetTimer(hWnd, 0, 10 * 1000, NULL);
-
-    nk_ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
+    nk_ctx = nk_d3d9_init(device, WINDOW_WIDTH, WINDOW_HEIGHT);
 
     // todo: add a custom font renderer
     //       with glyph fallbacks and all
@@ -521,57 +246,32 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
 
-    SetDarkTheme(nk_ctx);
-
-    while (true) {
-        MSG msg;
-        HRESULT hr;
-
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
         nk_input_begin(nk_ctx);
-        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-            if (msg.message == WM_QUIT) {
-                goto cleanup;
-            }
-
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
         nk_input_end(nk_ctx);
 
         if (nk_begin(nk_ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
             nk_layout_row_dynamic(nk_ctx, 20, 1);
-            for (int i = 0; i < hmlen(ctx.hooked_processes); i++) {
-                nk_label(nk_ctx, ctx.hooked_processes[i].value, NK_TEXT_LEFT);
-            }
+            nk_button_label(nk_ctx, "button");
         }
         nk_end(nk_ctx);
-
-        hr = RenderD3D9Objects(device);
-        CONTINUE_IF(SUCCEEDED(hr));
-
-        if (hr == S_PRESENT_OCCLUDED) {
-            Sleep(10);
-        }
+ 
+        CONTINUE_IF(SUCCEEDED(render_d3d9_objects(device)));
     }
 
 cleanup:
 
-    for (int i = 0; i < hmlen(ctx.hooked_processes); i++) {
-        free(ctx.hooked_processes[i].value);
-    }
-    hmfree(ctx.hooked_processes);
-
-    //UnhookWindowsHookEx(hook);
     if (nk_ctx) nk_d3d9_shutdown();
-    if (device) IDirect3DDevice9Ex_Release(device);
-    //if (hWinEventHook) UnhookWinEvent(hWinEventHook);
-    if (shellIconNotified) Shell_NotifyIconW(NIM_DELETE, &data);
-    if (hMenu) DestroyMenu(hMenu);
-    if (hWnd) DestroyWindow(hWnd);
-    if (wndClassRegistered) UnregisterClassW(wndClass.lpszClassName, wndClass.hInstance);
-    if (libModule) FreeLibrary(libModule);
-
+    if (device) IDirect3DDevice9_Release(device);
+    if (shell_icon_notified) Shell_NotifyIcon(NIM_DELETE, &data);
+    if (menu) DestroyMenu(menu);
+    if (wnd) DestroyWindow(wnd);
+    if (wnd_class_registered) UnregisterClass(wnd_class.lpszClassName, hInstance);
+    if (icon) DestroyIcon(icon);
     FreeConsole();
 
-    return result;
+    return res;
 }
