@@ -35,26 +35,26 @@
 #define TRAY_TITLE 1
 #define TRAY_EXIT 2
 
-struct hooked_process {
+struct hk_proc_map {
     DWORD key;
 
     HANDLE proc;
     HANDLE exit;
 };
 
-struct context {
+struct ctx {
     HMENU menu;
-    struct hooked_process* hooked_processes_map;
+    struct hk_proc_map* hk_procs_map;
 };
 
-struct process_context {
+struct hk_proc_ctx {
     HWND wnd;
     DWORD pid;
 };
 
 static VOID CALLBACK
 ProcessExitCallback(PVOID lpParameter, BOOLEAN /*TimerOrWaitFired*/) {
-    struct process_context* ctx = (struct process_context*)lpParameter;
+    struct hk_proc_ctx* ctx = (struct hk_proc_ctx*)lpParameter;
 
     PostMessage(
         ctx->wnd,
@@ -65,7 +65,7 @@ ProcessExitCallback(PVOID lpParameter, BOOLEAN /*TimerOrWaitFired*/) {
     free(ctx);
 }
 
-static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process** map) {
+static void hook_process(HWND msg_wnd, DWORD pid, struct hk_proc_map** map) {
     if (hmgeti(*map, pid) >= 0) {
         return;
     }
@@ -78,13 +78,13 @@ static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process** map) {
         return;
     }
 
-    struct process_context* ctx = malloc(sizeof(struct process_context));
+    struct hk_proc_ctx* ctx = malloc(sizeof(struct hk_proc_ctx));
     if (!ctx) {
         CloseHandle(proc);
         return;
     }
 
-    ctx->wnd = cb_wnd;
+    ctx->wnd = msg_wnd;
     ctx->pid = pid;
 
     if (!RegisterWaitForSingleObject(
@@ -100,7 +100,7 @@ static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process** map) {
         return;
     }
 
-    hmputs(*map, ((struct hooked_process){ pid, proc, exit }));
+    hmputs(*map, ((struct hk_proc_map){ pid, proc, exit }));
 }
 
 static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
@@ -187,7 +187,7 @@ WndProc(HWND hWnd,
         WPARAM wParam,
         LPARAM lParam) {
 
-    struct context* ctx = (struct context*)GetWindowLongPtr(hWnd, GWLP_USERDATA);
+    struct ctx* ctx = (struct ctx*)GetWindowLongPtr(hWnd, GWLP_USERDATA);
 
     switch (uMsg) {
     case WM_TRAYICON:
@@ -207,22 +207,26 @@ WndProc(HWND hWnd,
             hWnd,
             NULL);
         break;
-    case WM_PROCEXITED:
-        struct hooked_process hk_proc = hmgets(ctx->hooked_processes_map, (DWORD)wParam);
-        hmdel(ctx->hooked_processes_map, (DWORD)wParam);
+    case WM_PROCEXITED: {
+        DWORD pid = (DWORD)wParam;
+
+        struct hk_proc_map hk_proc = hmgets(ctx->hk_procs_map, pid);
+        hmdel(ctx->hk_procs_map, pid);
 
         UnregisterWait(hk_proc.exit);
         CloseHandle(hk_proc.proc);
 
         break;
-    case WM_TIMER:
+    }
+    case WM_TIMER: {
         HWND fg_wnd = GetForegroundWindow();
         DWORD pid;
         if (fg_wnd && GetWindowThreadProcessId(fg_wnd, &pid) > 0) {
-            hook_process(hWnd, pid, &ctx->hooked_processes_map);
+            hook_process(hWnd, pid, &ctx->hk_procs_map);
         }
 
         break;
+    }
     case WM_COMMAND:
         DWORD cmd = LOWORD(wParam);
         if (cmd == TRAY_EXIT) {
@@ -329,7 +333,7 @@ WinMain(HINSTANCE hInstance,
     CONTINUE_IF(Shell_NotifyIcon(NIM_ADD, &data));
     shell_icon_notified = true;
 
-    struct context ctx = {0};
+    struct ctx ctx = {0};
     ctx.menu = menu;
 
     SetWindowLongPtr(wnd, GWLP_USERDATA, (LONG_PTR)&ctx);
@@ -356,12 +360,14 @@ WinMain(HINSTANCE hInstance,
 
         if (nk_begin(nk_ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
             nk_layout_row_dynamic(nk_ctx, 20, 1);
-            for (int i = 0; i < hmlen(ctx.hooked_processes_map); i++) {
+            for (int i = 0; i < hmlen(ctx.hk_procs_map); i++) {
+                HANDLE proc = ctx.hk_procs_map[i].proc;
+
                 char path[MAX_PATH];
                 DWORD len = MAX_PATH;
 
                 if (!QueryFullProcessImageNameA(
-                    ctx.hooked_processes_map[i].proc,
+                    proc,
                     0,
                     path,
                     &len)) {
@@ -378,7 +384,16 @@ WinMain(HINSTANCE hInstance,
     }
 
 cleanup:
+    for (int i = 0; i < hmlen(ctx.hk_procs_map); i++) {
+        HANDLE done = CreateEvent(NULL, TRUE, FALSE, NULL);
 
+        UnregisterWaitEx(ctx.hk_procs_map[i].exit, done);
+        WaitForSingleObject(done, INFINITE);
+
+        CloseHandle(done);
+        CloseHandle(ctx.hk_procs_map[i].proc);
+    }
+    hmfree(ctx.hk_procs_map);
     if (nk_ctx) nk_d3d9_shutdown();
     if (device) IDirect3DDevice9_Release(device);
     if (shell_icon_notified) Shell_NotifyIcon(NIM_DELETE, &data);
