@@ -30,11 +30,12 @@
 }
 
 #define WM_TRAYICON (WM_USER + 1)
+#define WM_PROCEXITED (WM_USER + 2)
 
 #define TRAY_TITLE 1
 #define TRAY_EXIT 2
 
-struct map {
+struct hooked_process {
     DWORD key;
 
     HANDLE proc;
@@ -43,7 +44,64 @@ struct map {
 
 struct context {
     HMENU menu;
+    struct hooked_process* hooked_processes_map;
 };
+
+struct process_context {
+    HWND wnd;
+    DWORD pid;
+};
+
+static VOID CALLBACK
+ProcessExitCallback(PVOID lpParameter, BOOLEAN /*TimerOrWaitFired*/) {
+    struct process_context* ctx = (struct process_context*)lpParameter;
+
+    PostMessage(
+        ctx->wnd,
+        WM_PROCEXITED,
+        (WPARAM)ctx->pid,
+        0);
+
+    free(ctx);
+}
+
+static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process* map) {
+    if (hmgeti(map, pid) == -1) {
+        return;
+    }
+
+    HANDLE proc;
+    HANDLE exit;
+
+    proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
+    if (!proc) {
+        return;
+    }
+
+    struct process_context* ctx = malloc(sizeof(struct process_context));
+    ctx->wnd = cb_wnd;
+    ctx->pid = pid;
+
+    if (!ctx) {
+        CloseHandle(proc);
+        return;
+    }
+
+    if (!RegisterWaitForSingleObject(
+        &exit,
+        proc,
+        ProcessExitCallback,
+        &ctx,
+        INFINITE,
+        WT_EXECUTEONLYONCE)) {
+
+        free(ctx);
+        CloseHandle(proc);
+        return;
+    }
+
+    hmputs(map, ((struct hooked_process){ pid, proc, exit }));
+}
 
 static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
     HRESULT hr;
@@ -129,7 +187,42 @@ WndProc(HWND hWnd,
         WPARAM wParam,
         LPARAM lParam) {
 
+    struct context* ctx = (struct context*)GetWindowLongPtr(hWnd, GWLP_USERDATA);
+
     switch (uMsg) {
+    case WM_TRAYICON:
+        if (lParam != WM_RBUTTONUP) break;
+
+        POINT point;
+
+        GetCursorPos(&point);
+        SetForegroundWindow(hWnd);
+
+        TrackPopupMenu(
+            ctx->menu,
+            TPM_RIGHTBUTTON,
+            point.x,
+            point.y,
+            0,
+            hWnd,
+            NULL);
+        break;
+    case WM_PROCEXITED:
+        struct hooked_process hk_proc = hmgets(ctx->hooked_processes_map, (DWORD)wParam);
+        hmdel(ctx->hooked_processes_map, (DWORD)wParam);
+
+        UnregisterWait(hk_proc.exit);
+        CloseHandle(hk_proc.proc);
+
+        break;
+    case WM_TIMER:
+        HWND fg_wnd = GetForegroundWindow();
+        DWORD pid;
+        if (fg_wnd && GetWindowThreadProcessId(fg_wnd, &pid) > 0) {
+            hook_process(hWnd, pid, ctx->hooked_processes_map);
+        }
+
+        break;
     case WM_COMMAND:
         DWORD cmd = LOWORD(wParam);
         if (cmd == TRAY_EXIT) {
@@ -206,7 +299,7 @@ WinMain(HINSTANCE hInstance,
         WS_EX_APPWINDOW,
         wnd_class.lpszClassName,
         TEXT("Overlap Launcher"),
-        style,
+        style | WS_VISIBLE,
         CW_USEDEFAULT,
         CW_USEDEFAULT,
         rect.right - rect.left,
@@ -236,6 +329,11 @@ WinMain(HINSTANCE hInstance,
     CONTINUE_IF(Shell_NotifyIcon(NIM_ADD, &data));
     shell_icon_notified = true;
 
+    struct context ctx = {0};
+    ctx.menu = menu;
+
+    SetWindowLongPtr(wnd, GWLP_USERDATA, (LONG_PTR)&ctx);
+
     CONTINUE_IF(SUCCEEDED(create_d3d9_device(wnd, &device)));
 
     nk_ctx = nk_d3d9_init(device, WINDOW_WIDTH, WINDOW_HEIGHT);
@@ -246,6 +344,9 @@ WinMain(HINSTANCE hInstance,
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
 
+    // registers periodic foreground window checks
+    SetTimer(wnd, 0, 1000, NULL);
+
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
         nk_input_begin(nk_ctx);
@@ -255,7 +356,21 @@ WinMain(HINSTANCE hInstance,
 
         if (nk_begin(nk_ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
             nk_layout_row_dynamic(nk_ctx, 20, 1);
-            nk_button_label(nk_ctx, "button");
+            for (int i = 0; i < hmlen(ctx.hooked_processes_map); i++) {
+                char path[MAX_PATH];
+                DWORD len = MAX_PATH;
+
+                if (!QueryFullProcessImageNameA(
+                    ctx.hooked_processes_map[i].proc,
+                    0,
+                    path,
+                    &len)) {
+
+                    continue;
+                }
+
+                nk_button_label(nk_ctx, path);
+            }
         }
         nk_end(nk_ctx);
  
