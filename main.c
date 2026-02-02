@@ -145,7 +145,7 @@ static HWND GetForegroundAppWindow() {
 
 static LRESULT CALLBACK
 WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    struct Context* nk_ctx = (struct Context*)(lParam);
+    struct Context* ctx = (struct Context*)(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
 
     switch (uMsg) {
         case WM_TRAYICON:
@@ -156,7 +156,7 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 SetForegroundWindow(hWnd);
 
                 TrackPopupMenu(
-                    nk_ctx->hMenu,
+                    ctx->hMenu,
                     TPM_RIGHTBUTTON,
                     point.x,
                     point.y,
@@ -182,7 +182,14 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
 
                     hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
                     if (hProcess && QueryFullProcessImageNameA(hProcess, 0, path, &path_len)) {
-                        hmput(nk_ctx->hooked_processes, processId, strdup(path));
+                        struct HookedProcessesKV* kv = hmgetp_null(ctx->hooked_processes, processId);
+                        if (kv) {
+                            free(kv->value);
+                            kv->value = strdup(path);
+                        } else {
+                            hmput(ctx->hooked_processes, processId, strdup(path));
+                        }
+
                         printf("%lu, %s\n", processId, path);
                         CloseHandle(hProcess);
                     }
