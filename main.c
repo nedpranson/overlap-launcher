@@ -65,8 +65,8 @@ ProcessExitCallback(PVOID lpParameter, BOOLEAN /*TimerOrWaitFired*/) {
     free(ctx);
 }
 
-static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process* map) {
-    if (hmgeti(map, pid) == -1) {
+static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process** map) {
+    if (hmgeti(*map, pid) >= 0) {
         return;
     }
 
@@ -100,7 +100,7 @@ static void hook_process(HWND cb_wnd, DWORD pid, struct hooked_process* map) {
         return;
     }
 
-    hmputs(map, ((struct hooked_process){ pid, proc, exit }));
+    hmputs(*map, ((struct hooked_process){ pid, proc, exit }));
 }
 
 static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
@@ -219,7 +219,7 @@ WndProc(HWND hWnd,
         HWND fg_wnd = GetForegroundWindow();
         DWORD pid;
         if (fg_wnd && GetWindowThreadProcessId(fg_wnd, &pid) > 0) {
-            hook_process(hWnd, pid, ctx->hooked_processes_map);
+            hook_process(hWnd, pid, &ctx->hooked_processes_map);
         }
 
         break;
