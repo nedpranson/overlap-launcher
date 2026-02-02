@@ -61,7 +61,7 @@ __declspec(dllexport) void __overlap_ignore_proc(void) {}
 // |------------------|
 
 struct HookedProcessesKV {
-    HANDLE value;
+    char* value;
     DWORD key;
 };
 
@@ -112,18 +112,18 @@ static bool IsTaskbarWindow(HWND hWnd) {
     return false;
 }
 
-static char* AllocWindowTextA(HWND hWnd) {
-    int len = GetWindowTextLengthA(hWnd);
-    if (len == 0) {
-        return NULL;
-    }
+//static char* AllocWindowTextA(HWND hWnd) {
+    //int len = GetWindowTextLengthA(hWnd);
+    //if (len == 0) {
+        //return NULL;
+    //}
 
-    char* text = (char*)malloc(len + 1);
-    if (text) {
-        GetWindowTextA(hWnd, text, len + 1);
-    }
-    return text;
-}
+    //char* text = (char*)malloc(len + 1);
+    //if (text) {
+        //GetWindowTextA(hWnd, text, len + 1);
+    //}
+    //return text;
+//}
 
 static BOOL CALLBACK
 EnumWindowsProc(HWND hWnd, LPARAM lParam) {
@@ -145,7 +145,7 @@ static HWND GetForegroundAppWindow() {
 
 static LRESULT CALLBACK
 WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    struct Context* ctx = (struct Context*)(lParam);
+    struct Context* nk_ctx = (struct Context*)(lParam);
 
     switch (uMsg) {
         case WM_TRAYICON:
@@ -156,7 +156,7 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 SetForegroundWindow(hWnd);
 
                 TrackPopupMenu(
-                    ctx->hMenu,
+                    nk_ctx->hMenu,
                     TPM_RIGHTBUTTON,
                     point.x,
                     point.y,
@@ -171,14 +171,21 @@ WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             // does not fire when opening an application
             {
                 HWND hWnd;
-                char* title;
                 DWORD processId;
 
-                if ((hWnd = GetForegroundAppWindow()) && (title = AllocWindowTextA(hWnd)) && GetWindowThreadProcessId(hWnd, &processId) > 0) {
-                    hmput(ctx->hooked_processes, processId, NULL);
+                if ((hWnd = GetForegroundAppWindow()) && GetWindowThreadProcessId(hWnd, &processId) > 0) {
 
-                    printf("%s\n", title);
-                    free(title);
+                    HANDLE hProcess;
+
+                    char path[MAX_PATH];
+                    DWORD path_len = MAX_PATH;
+
+                    hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+                    if (hProcess && QueryFullProcessImageNameA(hProcess, 0, path, &path_len)) {
+                        hmput(nk_ctx->hooked_processes, processId, strdup(path));
+                        printf("%lu, %s\n", processId, path);
+                        CloseHandle(hProcess);
+                    }
                 }
 
                 break;
@@ -292,7 +299,7 @@ static HRESULT RenderD3D9Objects(IDirect3DDevice9Ex* device) {
     return hr;
 }
 
-static void SetDarkTheme(struct nk_context* ctx) {
+static void SetDarkTheme(struct nk_context* nk_ctx) {
     struct nk_color table[NK_COLOR_COUNT];
 
     // todo: pick actual nice colors
@@ -340,7 +347,7 @@ static void SetDarkTheme(struct nk_context* ctx) {
     table[NK_COLOR_KNOB_CURSOR_HOVER] = COL_ACCENT;
     table[NK_COLOR_KNOB_CURSOR_ACTIVE] = COL_ACCENT;
 
-    nk_style_from_table(ctx, table);
+    nk_style_from_table(nk_ctx, table);
 }
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine, int nCmdShow) {
@@ -363,7 +370,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     bool shellIconNotified = false;
 
     IDirect3DDevice9Ex *device = NULL;
-    struct nk_context* ctx = NULL;
+    struct nk_context* nk_ctx = NULL;
     
     int result = 0;
 
@@ -456,10 +463,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
     AppendMenuW(hMenu, MF_SEPARATOR, 0, NULL);
     AppendMenuW(hMenu, MF_STRING, TRAY_EXIT, L"Exit");
 
-    struct Context context = {0};
-    context.hMenu = hMenu;
+    struct Context ctx = {0};
+    ctx.hMenu = hMenu;
 
-    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)&context);
+    SetWindowLongPtrW(hWnd, GWLP_USERDATA, (LONG_PTR)&ctx);
 
     NOTIFYICONDATAW data = {0};
     data.cbSize = sizeof(data);
@@ -499,19 +506,21 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
 
     SetTimer(hWnd, 0, 10 * 1000, NULL);
 
-    ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
+    nk_ctx = nk_d3d9_init((IDirect3DDevice9*)device, WINDOW_WIDTH, WINDOW_HEIGHT);
 
+    // todo: add a custom font renderer
+    //       with glyph fallbacks and all
     struct nk_font_atlas *atlas;
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
 
-    SetDarkTheme(ctx);
+    SetDarkTheme(nk_ctx);
 
     while (true) {
         MSG msg;
         HRESULT hr;
 
-        nk_input_begin(ctx);
+        nk_input_begin(nk_ctx);
         while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) {
                 goto cleanup;
@@ -520,15 +529,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        nk_input_end(ctx);
+        nk_input_end(nk_ctx);
 
-        if (nk_begin(ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
-            nk_layout_row_dynamic(ctx, 20, 1);
-            for (int i = 0; i < hmlen(context.hooked_processes); i++) {
-                nk_label(ctx, "!!!", NK_TEXT_LEFT);
+        if (nk_begin(nk_ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
+            nk_layout_row_dynamic(nk_ctx, 20, 1);
+            for (int i = 0; i < hmlen(ctx.hooked_processes); i++) {
+                nk_label(nk_ctx, ctx.hooked_processes[i].value, NK_TEXT_LEFT);
             }
         }
-        nk_end(ctx);
+        nk_end(nk_ctx);
 
         hr = RenderD3D9Objects(device);
         CONTINUE_IF(SUCCEEDED(hr));
@@ -540,10 +549,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR pCmdLine
 
 cleanup:
 
-    hmfree(context.hooked_processes);
+    for (int i = 0; i < hmlen(ctx.hooked_processes); i++) {
+        free(ctx.hooked_processes[i].value);
+    }
+    hmfree(ctx.hooked_processes);
 
     //UnhookWindowsHookEx(hook);
-    if (ctx) nk_d3d9_shutdown();
+    if (nk_ctx) nk_d3d9_shutdown();
     if (device) IDirect3DDevice9Ex_Release(device);
     //if (hWinEventHook) UnhookWinEvent(hWinEventHook);
     if (shellIconNotified) Shell_NotifyIconW(NIM_DELETE, &data);
