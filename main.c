@@ -65,6 +65,7 @@ ProcessExitCallback(PVOID lpParameter, BOOLEAN /*TimerOrWaitFired*/) {
     free(ctx);
 }
 
+// todo: hook any executable that is not under C:\Windows
 static void hook_process(HWND msg_wnd, DWORD pid, struct hk_proc_map** map) {
     if (hmgeti(*map, pid) >= 0) {
         return;
@@ -214,6 +215,8 @@ WndProc(HWND hWnd,
         hmdel(ctx->hk_procs_map, pid);
 
         UnregisterWait(hk_proc.exit);
+
+        CloseHandle(hk_proc.exit);
         CloseHandle(hk_proc.proc);
 
         break;
@@ -359,23 +362,32 @@ WinMain(HINSTANCE hInstance,
         nk_input_end(nk_ctx);
 
         if (nk_begin(nk_ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
-            nk_layout_row_dynamic(nk_ctx, 20, 1);
-            for (int i = 0; i < hmlen(ctx.hk_procs_map); i++) {
+            int len = hmlen(ctx.hk_procs_map);
+            for (int i = 0; i < len; i++) {
                 HANDLE proc = ctx.hk_procs_map[i].proc;
 
                 char path[MAX_PATH];
-                DWORD len = MAX_PATH;
+                DWORD path_len = MAX_PATH;
 
-                if (!QueryFullProcessImageNameA(
-                    proc,
-                    0,
-                    path,
-                    &len)) {
-
+                if (!QueryFullProcessImageNameA(proc, 0, path, &path_len)) {
                     continue;
                 }
 
-                nk_button_label(nk_ctx, path);
+                nk_layout_row_dynamic(nk_ctx, 20.0f, 2);
+                nk_label(nk_ctx, "*", NK_TEXT_LEFT);
+                nk_label(nk_ctx, path, NK_TEXT_LEFT);
+
+                if (len == i - 1) {
+                    continue;
+                }
+
+                nk_layout_row_dynamic(nk_ctx, 1.0f, 1);
+                struct nk_rect bounds = nk_layout_widget_bounds(nk_ctx);
+                nk_fill_rect(
+                    &nk_ctx->current->buffer,
+                    nk_rect(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h),
+                    0.0f,
+                    nk_ctx->style.text.color);
             }
         }
         nk_end(nk_ctx);
@@ -384,13 +396,17 @@ WinMain(HINSTANCE hInstance,
     }
 
 cleanup:
+
     for (int i = 0; i < hmlen(ctx.hk_procs_map); i++) {
+        // todo: fix this little leak
+        // we're leaking memory, that ctx is what we're leaking
         HANDLE done = CreateEvent(NULL, TRUE, FALSE, NULL);
 
         UnregisterWaitEx(ctx.hk_procs_map[i].exit, done);
         WaitForSingleObject(done, INFINITE);
 
         CloseHandle(done);
+        CloseHandle(ctx.hk_procs_map[i].exit);
         CloseHandle(ctx.hk_procs_map[i].proc);
     }
     hmfree(ctx.hk_procs_map);
