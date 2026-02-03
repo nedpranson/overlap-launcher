@@ -38,6 +38,7 @@
 struct hk_proc_map {
     DWORD key;
 
+    HHOOK hook;
     HANDLE proc;
     HANDLE exit;
 };
@@ -66,22 +67,35 @@ ProcessExitCallback(PVOID lpParameter, BOOLEAN /*TimerOrWaitFired*/) {
 }
 
 // todo: hook any executable that is not under C:\Windows
-static void hook_process(HWND msg_wnd, DWORD pid, struct hk_proc_map** map) {
+static void 
+hook_process(HMODULE dll,
+             HWND msg_wnd,
+             DWORD pid,
+             struct hk_proc_map** map) {
+
     if (hmgeti(*map, pid) >= 0) {
         return;
     }
 
+    HHOOK hook;
     HANDLE proc;
     HANDLE exit;
 
+    hook = SetWindowsHookEx(WH_GETMESSAGE, NULL, dll, pid);
+    if (!hook) {
+        return;
+    }
+
     proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, pid);
     if (!proc) {
+        UnhookWindowsHookEx(hook);
         return;
     }
 
     struct hk_proc_ctx* ctx = malloc(sizeof(struct hk_proc_ctx));
     if (!ctx) {
         CloseHandle(proc);
+        UnhookWindowsHookEx(hook);
         return;
     }
 
@@ -98,11 +112,15 @@ static void hook_process(HWND msg_wnd, DWORD pid, struct hk_proc_map** map) {
 
         free(ctx);
         CloseHandle(proc);
+        UnhookWindowsHookEx(hook);
         return;
     }
 
+    PostThreadMessage(pid, 0, 0, 0);
+
     hmputs(*map, ((struct hk_proc_map){
         .key = pid,
+        .hook = hook,
         .proc = proc,
         .exit = exit,
     }));
@@ -267,6 +285,7 @@ WinMain(HINSTANCE hInstance,
 
     int res = 0;
 
+    HMODULE dll;
     HICON icon = NULL;
 
     HWND wnd = NULL;
@@ -277,6 +296,10 @@ WinMain(HINSTANCE hInstance,
 
     IDirect3DDevice9 *device = NULL;
     struct nk_context* nk_ctx = NULL;
+
+    // todo: get from LOCALAPPDATA/Overlap/overlay.dll
+    dll = LoadLibrary(TEXT("overlap.dll"));
+    CONTINUE_IF(dll);
 
     icon = LoadImage(
         NULL,
@@ -402,7 +425,7 @@ WinMain(HINSTANCE hInstance,
                 nk_ctx->style.text.color);
             nk_button_label(nk_ctx, "Settings");
 
-            // make gap with height of 15 pixels
+            // gap!
             nk_layout_row_dynamic(nk_ctx, 15.0, 3);
 
             int len = hmlen(ctx.hk_procs_map);
@@ -459,6 +482,7 @@ cleanup:
     if (wnd) DestroyWindow(wnd);
     if (wnd_class_registered) UnregisterClass(wnd_class.lpszClassName, hInstance);
     if (icon) DestroyIcon(icon);
+    if (dll) FreeLibrary(dll);
     FreeConsole();
 
     return res;
