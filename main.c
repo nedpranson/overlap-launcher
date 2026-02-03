@@ -382,22 +382,15 @@ WinMain(HINSTANCE hInstance,
                 nk_layout_row_template_push_dynamic(nk_ctx); 
                 nk_layout_row_template_end(nk_ctx);
 
-                //nk_layout_row_dynamic(nk_ctx, 20.0f, 2);
                 nk_label(nk_ctx, "*", NK_TEXT_CENTERED);
                 nk_label(nk_ctx, path, NK_TEXT_LEFT);
 
-                if (len == i - 1) {
+                if (len == i + 1) {
                     continue;
                 }
 
-
-                //nk_layout_row_dynamic(nk_ctx, 1.0f, 1);
-                //struct nk_rect bounds = nk_layout_widget_bounds(nk_ctx);
-                //nk_fill_rect(
-                    //&nk_ctx->current->buffer,
-                    //nk_rect(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h),
-                    //0.0f,
-                    //nk_ctx->style.text.color);
+                nk_layout_row_dynamic(nk_ctx, 1.0f, 1);
+                nk_rule_horizontal(nk_ctx, nk_ctx->style.text.color, nk_false);
             }
         }
         nk_end(nk_ctx);
