@@ -358,6 +358,10 @@ WinMain(HINSTANCE hInstance,
     // registers periodic foreground window checks
     SetTimer(wnd, 0, 1000, NULL);
 
+    nk_ctx->style.button.border = 0.0;
+    nk_ctx->style.button.normal.data.color.a = 0;
+    nk_ctx->style.button.rounding = 0.0;
+
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
         nk_input_begin(nk_ctx);
@@ -365,7 +369,42 @@ WinMain(HINSTANCE hInstance,
         DispatchMessage(&msg);
         nk_input_end(nk_ctx);
 
-        if (nk_begin(nk_ctx, "Main", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER)) {
+        // add underline to the selected one
+        // |------------------------------|
+        // | Injected, Excluded, Settings |
+        // |------------------------------|
+
+        struct nk_rect bounds;
+        if (nk_begin(nk_ctx, "Overlap Launcher", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+            nk_layout_row_dynamic(nk_ctx, 30.0, 3);
+
+            bounds = nk_widget_bounds(nk_ctx);
+            nk_fill_rect(
+                &nk_ctx->current->buffer,
+                nk_rect(bounds.x, bounds.y + bounds.h, bounds.w, 1.0f),
+                nk_false,
+                nk_ctx->style.text.color);
+            nk_button_label(nk_ctx, "Injected");
+
+            bounds = nk_widget_bounds(nk_ctx);
+            nk_fill_rect(
+                &nk_ctx->current->buffer,
+                nk_rect(bounds.x, bounds.y + bounds.h, bounds.w, 1.0f),
+                nk_false,
+                nk_ctx->style.text.color);
+            nk_button_label(nk_ctx, "Excluded");
+
+            bounds = nk_widget_bounds(nk_ctx);
+            nk_fill_rect(
+                &nk_ctx->current->buffer,
+                nk_rect(bounds.x, bounds.y + bounds.h, bounds.w, 1.0f),
+                nk_false,
+                nk_ctx->style.text.color);
+            nk_button_label(nk_ctx, "Settings");
+
+            // make gap with height of 15 pixels
+            nk_layout_row_dynamic(nk_ctx, 15.0, 3);
+
             int len = hmlen(ctx.hk_procs_map);
             for (int i = 0; i < len; i++) {
                 HANDLE proc = ctx.hk_procs_map[i].proc;
