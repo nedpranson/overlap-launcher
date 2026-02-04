@@ -4,10 +4,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{ .default_target = .{ .os_tag = .windows } });
     const optimize = b.standardOptimizeOption(.{});
 
-    const nuklear = b.dependency("nuklear", .{
-        .target = target,
-        .optimize = optimize,
-    });
+    //const nuklear = b.dependency("nuklear", .{
+        //.target = target,
+        //.optimize = optimize,
+    //});
 
     const stb = b.dependency("stb", .{
         .target = target,
@@ -19,15 +19,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const exe = b.addExecutable(.{
-        .name = "overlap",
+    const hook = b.addExecutable(.{
+        .name = "hook",
         .root_module = exe_mod,
     });
 
-    exe.linkLibC();
-    exe.linkSystemLibrary("user32");
-    exe.linkSystemLibrary("dwmapi");
-    exe.linkSystemLibrary("d3d9");
+    hook.linkLibC();
+    hook.linkSystemLibrary("user32");
+    hook.linkSystemLibrary("dwmapi");
+    //hook.linkSystemLibrary("d3d9");
 
     const flags = &[_][]const u8 {
         "-Wall",
@@ -37,16 +37,16 @@ pub fn build(b: *std.Build) void {
         "-std=c23",
     };
 
-    exe.addIncludePath(nuklear.path(""));
-    exe.addIncludePath(nuklear.path("demo/d3d9"));
-    exe.addIncludePath(stb.path(""));
+    //hook.addIncludePath(nuklear.path(""));
+    //hook.addIncludePath(nuklear.path("demo/d3d9"));
+    hook.addIncludePath(stb.path(""));
     
-    exe.addCSourceFile(.{
-        .file = b.path("main.c"),
+    hook.addCSourceFile(.{
+        .file = b.path("src/hook.c"),
         .flags = flags,
     });
     
-    exe.subsystem = .Windows;
+    // hook.subsystem = .Windows;
 
-    b.installArtifact(exe);
+    b.installArtifact(hook);
 }
