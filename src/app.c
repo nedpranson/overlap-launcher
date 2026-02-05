@@ -1,4 +1,3 @@
-#include "minwindef.h"
 #define UNICODE
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -237,6 +236,29 @@ static void destroy_app_window(HWND wnd, HINSTANCE instance) {
     UnregisterClass(TEXT(WINDOW_CLASSNAME), instance);
 }
 
+static DWORD get_app_data_dir_w(wchar_t* buf, size_t buf_len, const wchar_t* appname) {
+    // returns by default len excluding the null terminator
+    // except if buf is too small, returns needed len including null terminator
+    DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, buf_len);
+    DWORD appname_len;
+
+    // had space to put env var
+    bool flag = len < buf_len;
+    if (len > 0 && appname && (appname_len = lstrlenW(appname)) > 0) {
+        DWORD env_len = len;
+        len += appname_len;
+
+        if (len >= buf_len) {
+            return len + flag;
+        }
+
+        memcpy(buf + env_len, appname, appname_len * sizeof(wchar_t));
+        buf[len] = L'\0';
+    }
+    
+    return len;
+}
+
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int /*nCmdShow*/) {
     int res = 0;
@@ -280,34 +302,22 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     nk_d3d9_font_stash_begin(&atlas);
     nk_d3d9_font_stash_end();
 
-    STARTUPINFOA si = {0};
+    STARTUPINFOW si = {0};
     si.cb = sizeof(si);
 
-    // LOCALAPPDATA/Overlap/hookx64.exe
-    // LOCALAPPDATA/Overlap/overlayx64.dll
-    // todo: after spawning procs from appdata
-    //       make message boxes on failures
-    char local_app_data_dir[MAX_PATH];
-    DWORD len = GetEnvironmentVariableA(
-        "LOCALAPPDATA",
-        local_app_data_dir,
-        MAX_PATH
-    );
+    wchar_t hookx64_path[MAX_PATH];
+    wchar_t cmd_line[] = L"hookx64.exe overlayx64.dll";
 
-    if (len > 0) {
-        printf("%s\n", local_app_data_dir);
+    if (get_app_data_dir_w(hookx64_path, MAX_PATH, L"\\Overlap\\hookx64.exe") > MAX_PATH) {
+        res = 1;
+        goto cleanup;
     }
 
-    //
-    // 32,767
+    OutputDebugStringW(hookx64_path);
 
-    //UNICODE_STRING_MAX_CHARS
-
-    // on W buf can be modified
-    // so for now will just use A
-    if (!CreateProcessA(
-        "hookx64.exe",
-        "hookx64.exe overlapx64.dll",
+    if (!CreateProcessW(
+        hookx64_path,
+        cmd_line,
         NULL,
         NULL,
         FALSE,
