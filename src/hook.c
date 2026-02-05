@@ -1,6 +1,7 @@
+#define UNICODE
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <dwmapi.h>
-#include <stdio.h>
 #include <stdbool.h>
 
 #define STB_DS_IMPLEMENTATION
@@ -146,13 +147,7 @@ WinEventProc(
         return;
     }
 
-    char title[MAX_PATH];
-    if (GetWindowTextA(hwnd, title, MAX_PATH)) {
-        printf("hooked: %s\n", title);
-    } else {
-        printf("hooked: %lu\n", pid);
-    }
-
+    // todo: notify that we hooked pid
     hk_proc hooked_proc = {
         .key = pid,
         .hook = hook,
@@ -187,7 +182,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    dll_hook_proc = (HOOKPROC)GetProcAddress(dll_mod, "__overlap_hook_proc");
+    dll_hook_proc = (HOOKPROC)(void*)GetProcAddress(dll_mod, "__overlap_hook_proc");
     if (!dll_hook_proc) {
         FreeLibrary(dll_mod);
         return 1;
