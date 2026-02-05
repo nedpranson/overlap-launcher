@@ -1,3 +1,4 @@
+#include "errhandlingapi.h"
 #define UNICODE
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -259,9 +260,32 @@ static DWORD get_app_data_dir_w(wchar_t* buf, size_t buf_len, const wchar_t* app
     return len;
 }
 
+static void display_error(DWORD win32_err) {
+    LPWSTR error;
+    DWORD len = FormatMessageW(
+        FORMAT_MESSAGE_FROM_SYSTEM | 
+        FORMAT_MESSAGE_IGNORE_INSERTS | 
+        FORMAT_MESSAGE_ALLOCATE_BUFFER,
+        NULL,
+        win32_err,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPWSTR)&error,
+        0,
+        NULL
+    );
+
+    if (len == 0) {
+        error = L"Unexpected Error";
+    }
+
+    MessageBoxW(NULL, error, L"Overlap - Error", MB_ICONERROR | MB_OK);
+
+    if (len > 0) LocalFree(error);
+}
+
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int /*nCmdShow*/) {
-    int res = 0;
+    DWORD err = S_OK;
 
     HICON icon = NULL;
     HWND wnd = NULL;
@@ -271,6 +295,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
 
     PROCESS_INFORMATION hookx64_pi = {0};
 
+    HRESULT hr;
+
     icon = LoadImage(
         NULL,
         IDI_APPLICATION,
@@ -279,18 +305,18 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
         32,
         LR_SHARED);
     if (!icon) {
-        res = 1;
+        err = GetLastError();
         goto cleanup;
     }
 
     wnd = create_app_window(hInstance, icon);
     if (!wnd) {
-        res = 1;
+        err = GetLastError();
         goto cleanup;
     }
 
-    if (FAILED(create_d3d9_device(wnd, &device))) {
-        res = 1;
+    if (FAILED(hr = create_d3d9_device(wnd, &device))) {
+        err = HRESULT_CODE(hr);
         goto cleanup;
     }
 
@@ -309,7 +335,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     wchar_t cmd_line[] = L"hookx64.exe overlayx64.dll";
 
     if (get_app_data_dir_w(hookx64_path, MAX_PATH, L"\\Overlap\\hookx64.exe") > MAX_PATH) {
-        res = 1;
+        err = ERROR_INSUFFICIENT_BUFFER;
         goto cleanup;
     }
 
@@ -326,7 +352,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
         NULL,
         &si,
         &hookx64_pi)) {
-        res = 1;
+
+        err = GetLastError();
         goto cleanup;
     }
 
@@ -397,8 +424,8 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
         }
         nk_end(nk_ctx);
 
-        if (FAILED(render_d3d9_objects(device))) {
-            res = 1;
+        if (FAILED(hr = render_d3d9_objects(device))) {
+            err = HRESULT_CODE(hr);
             goto cleanup;
         }
     }
@@ -416,5 +443,9 @@ cleanup:
     if (device) IDirect3DDevice9_Release(device);
     if (wnd) destroy_app_window(wnd, hInstance);
     if (icon) DestroyIcon(icon);
-    return res;
+    // todo: we can even add metadata like: failed to load icon\n{err}
+    //       add some error_obj{ why: str, code: win_err }
+    if (err != S_OK) display_error(err);
+
+    return err == S_OK;
 }
