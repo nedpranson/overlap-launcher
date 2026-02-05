@@ -339,8 +339,6 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
         goto cleanup;
     }
 
-    OutputDebugStringW(hookx64_path);
-
     if (!CreateProcessW(
         hookx64_path,
         cmd_line,
@@ -431,6 +429,9 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     }
 
 cleanup:
+    // todo: we can even add metadata like: failed to load icon\n{err}
+    //       add some error_obj{ why: str, code: win_err }
+    if (err != S_OK) display_error(err);
     if (hookx64_pi.hProcess) {
         PostThreadMessage(hookx64_pi.dwThreadId, WM_QUIT, 0, 0);
         WaitForSingleObject(hookx64_pi.hProcess, INFINITE);
@@ -443,9 +444,6 @@ cleanup:
     if (device) IDirect3DDevice9_Release(device);
     if (wnd) destroy_app_window(wnd, hInstance);
     if (icon) DestroyIcon(icon);
-    // todo: we can even add metadata like: failed to load icon\n{err}
-    //       add some error_obj{ why: str, code: win_err }
-    if (err != S_OK) display_error(err);
 
     return err == S_OK;
 }
