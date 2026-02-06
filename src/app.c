@@ -1,4 +1,3 @@
-#include "errhandlingapi.h"
 #define UNICODE
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -22,7 +21,8 @@
 #define STB_DS_IMPLEMENTATION
 #include "stb_ds.h"
 
-#define WM_TRAYICON (WM_USER + 1)
+#define WM_TRAYICON   (WM_USER + 1)
+#define WM_HOOKNOTIFY (WM_USER + 2)
 
 #define WINDOW_CLASSNAME "OverlapLauncherClass"
 
@@ -53,6 +53,9 @@ WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 hwnd,
                 NULL);
         }
+        break;
+    case WM_HOOKNOTIFY:
+        OutputDebugString(TEXT("WM_HOOKNOTIFY"));
         break;
     case WM_COMMAND:
         if (LOWORD(wParam) == TRAY_EXIT) {
@@ -285,6 +288,7 @@ static void display_error(DWORD win32_err) {
 
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int /*nCmdShow*/) {
+    //LPWSTR cause = NULL;
     DWORD err = S_OK;
 
     HICON icon = NULL;
@@ -406,7 +410,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
             //
             //     nk_layout_row_template_begin(nk_ctx, 20.0);
             //     nk_layout_row_template_push_static(nk_ctx, 16.0);
-            //     nk_layout_row_template_push_dynamic(nk_ctx); 
+            //     nk_layout_row_template_push_dynamic(nk_ctx);
             //     nk_layout_row_template_end(nk_ctx);
             //
             //     nk_label(nk_ctx, "*", NK_TEXT_CENTERED);
