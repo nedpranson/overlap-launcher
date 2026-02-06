@@ -32,6 +32,11 @@
 #define TRAY_TITLE 1
 #define TRAY_EXIT 2
 
+static struct {
+    DWORD key;
+    char*  value;
+}* hooked_procs = NULL;
+
 static LRESULT CALLBACK
 WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
@@ -54,9 +59,40 @@ WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
                 NULL);
         }
         break;
-    case WM_HOOKNOTIFY:
-        OutputDebugString(TEXT("WM_HOOKNOTIFY"));
+    case WM_HOOKNOTIFY:{
+        DWORD pid = wParam;
+        HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+        if (proc == NULL) {
+            break;
+        }
+
+        DWORD len;
+        QueryFullProcessImageNameA(proc, 0, NULL, &len);
+
+        if (len == 0) {
+            break;
+        }
+
+        char* proc_path = malloc(len * sizeof(char));
+        if (!QueryFullProcessImageNameA(proc, 0, proc_path, &len)) {
+            free(proc_path);
+            break;
+        }
+
+        hmput(hooked_procs, pid, proc_path);
+        break;}
+    case WM_COPYDATA:
+    {
+        PCOPYDATASTRUCT pcds = (PCOPYDATASTRUCT)lParam;
+        char* msg = (char*)pcds->lpData;
+        DWORD msg_len = pcds->cbData;
+
+        if (msg_len > 0 && msg[msg_len - 1] == '\0') {
+            OutputDebugStringA(msg);
+        }
+
         break;
+    }
     case WM_COMMAND:
         if (LOWORD(wParam) == TRAY_EXIT) {
             PostQuitMessage(0);
@@ -395,34 +431,25 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
             nk_button_label(nk_ctx, "Settings");
 
             // gap!
-            // nk_layout_row_dynamic(nk_ctx, 15.0, 3);
+            nk_layout_row_dynamic(nk_ctx, 15.0, 3);
 
-            // int len = hmlen(ctx.hk_procs_map);
-            // for (int i = 0; i < len; i++) {
-            //     HANDLE proc = ctx.hk_procs_map[i].proc;
-            //
-            //     char path[MAX_PATH];
-            //     DWORD path_len = MAX_PATH;
-            //
-            //     if (!QueryFullProcessImageNameA(proc, 0, path, &path_len)) {
-            //         continue;
-            //     }
-            //
-            //     nk_layout_row_template_begin(nk_ctx, 20.0);
-            //     nk_layout_row_template_push_static(nk_ctx, 16.0);
-            //     nk_layout_row_template_push_dynamic(nk_ctx);
-            //     nk_layout_row_template_end(nk_ctx);
-            //
-            //     nk_label(nk_ctx, "*", NK_TEXT_CENTERED);
-            //     nk_label(nk_ctx, path, NK_TEXT_LEFT);
-            //
-            //     if (len == i + 1) {
-            //         continue;
-            //     }
-            //
-            //     nk_layout_row_dynamic(nk_ctx, 1.0f, 1);
-            //     nk_rule_horizontal(nk_ctx, nk_ctx->style.text.color, nk_false);
-            // }
+            int len = hmlen(hooked_procs);
+            for (int i = 0; i < len; i++) {
+                nk_layout_row_template_begin(nk_ctx, 20.0);
+                nk_layout_row_template_push_static(nk_ctx, 16.0);
+                nk_layout_row_template_push_dynamic(nk_ctx);
+                nk_layout_row_template_end(nk_ctx);
+
+                nk_label(nk_ctx, "*", NK_TEXT_CENTERED);
+                nk_label(nk_ctx, hooked_procs[i].value, NK_TEXT_LEFT);
+
+                if (len == i + 1) {
+                    continue;
+                }
+
+                nk_layout_row_dynamic(nk_ctx, 1.0f, 1);
+                nk_rule_horizontal(nk_ctx, nk_ctx->style.text.color, nk_false);
+            }
         }
         nk_end(nk_ctx);
 
@@ -433,6 +460,11 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     }
 
 cleanup:
+    for (int i = 0; i < hmlen(hooked_procs); i++) {
+        free(hooked_procs[i].value);
+    }
+    hmfree(hooked_procs);
+
     // todo: we can even add metadata like: failed to load icon\n{err}
     //       add some error_obj{ why: str, code: win_err }
     if (err != S_OK) display_error(err);
