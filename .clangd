@@ -2,7 +2,5 @@ CompileFlags:
   Add:
     - "--target=x86_64-windows-gnu"
     - "-std=c23"
-    - "-I/usr/lib/zig/libc/include/any-windows-any/"
-    - "-I/home/nedas/.cache/zig/p/N-V-__8AAJRXZACplwL2Rewz3SHQ2nqva-x0Omg539fHlE83"
-    - "-I/home/nedas/.cache/zig/p/N-V-__8AAJRXZACplwL2Rewz3SHQ2nqva-x0Omg539fHlE83/demo/d3d9"
-    - "-I/home/nedas/.cache/zig/p/N-V-__8AABQ7TgCnPlp8MP4YA8znrjd6E-ZjpF1rvrS8J_2I"
+    - "-I/home/nedas/.local/share/mise/installs/zig/latest/lib/libc/include/any-windows-any/"
+    - "-I/home/nedas/Work/overlap-launcher/zig-pkg/N-V-__8AALPgZwA7tLqRlkCCL7OrkEhj4xZ3y_0FxgR42t0W/"

@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
 #define UNICODE
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
@@ -7,10 +5,21 @@
 #include <shlobj.h>
 #include <pathcch.h>
 #include <shellapi.h>
-#include <d3d9.h>
 
-#define CLAY_IMPLEMENTATION
-#include "clay.h"
+#define NK_INCLUDE_FIXED_TYPES
+#define NK_INCLUDE_STANDARD_IO
+#define NK_INCLUDE_STANDARD_VARARGS
+#define NK_INCLUDE_DEFAULT_ALLOCATOR
+#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
+#define NK_INCLUDE_FONT_BAKING
+#define NK_INCLUDE_DEFAULT_FONT
+#define NK_IMPLEMENTATION
+#define NK_D3D9_IMPLEMENTATION
+#include "nuklear.h"
+#include "nuklear_d3d9.h"
+
+#define STB_DS_IMPLEMENTATION
+#include "stb_ds.h"
 
 #define WM_TRAYICON   (WM_USER + 1)
 #define WM_HOOKNOTIFY (WM_USER + 2)
@@ -22,6 +31,11 @@
 
 #define TRAY_TITLE 1
 #define TRAY_EXIT 2
+
+static struct {
+    DWORD key;
+    char*  value;
+}* hooked_procs = NULL;
 
 static LRESULT CALLBACK
 WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -65,6 +79,7 @@ WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             break;
         }
 
+        hmput(hooked_procs, pid, proc_path);
         break;}
     case WM_COPYDATA:
     {
@@ -86,6 +101,10 @@ WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         break;
     case WM_DESTROY:
         PostQuitMessage(0);
+        return 0;
+    }
+
+    if (nk_d3d9_handle_event(hwnd, uMsg, wParam, lParam)) {
         return 0;
     }
 
@@ -141,7 +160,7 @@ static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
     return hr;
 }
 
-static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandArray commands) {
+static HRESULT render_d3d9_objects(IDirect3DDevice9* device) {
     HRESULT hr;
 
     hr = IDirect3DDevice9_Clear(
@@ -159,23 +178,7 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
         return hr;
     }
 
-    // More comprehensive rendering examples can be found in the renderers/ directory
-    for (int i = 0; i < commands.length; i++) {
-        Clay_RenderCommand* cmd = &commands.internalArray[i];
-        Clay_BoundingBox bbox = cmd->boundingBox;
-
-        switch (cmd->commandType) {
-            case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
-                Clay_RectangleRenderData* rect = &cmd->renderData.rectangle;
-                (void)bbox;
-                (void)rect;
-                break;
-            }
-            default: {
-                // ... Implement handling of other command types
-            }
-        }
-    }
+    nk_d3d9_render(NK_ANTI_ALIASING_ON);
 
     hr = IDirect3DDevice9_EndScene(device);
     if (FAILED(hr)) {
@@ -273,28 +276,28 @@ static void destroy_app_window(HWND wnd, HINSTANCE instance) {
     UnregisterClass(TEXT(WINDOW_CLASSNAME), instance);
 }
 
-// static DWORD get_app_data_dir_w(wchar_t* buf, size_t buf_len, const wchar_t* appname) {
-//     // returns by default len excluding the null terminator
-//     // except if buf is too small, returns needed len including null terminator
-//     DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, buf_len);
-//     DWORD appname_len;
-//
-//     // had space to put env var
-//     bool flag = len < buf_len;
-//     if (len > 0 && appname && (appname_len = lstrlenW(appname)) > 0) {
-//         DWORD env_len = len;
-//         len += appname_len;
-//
-//         if (len >= buf_len) {
-//             return len + flag;
-//         }
-//
-//         memcpy(buf + env_len, appname, appname_len * sizeof(wchar_t));
-//         buf[len] = L'\0';
-//     }
-//
-//     return len;
-// }
+static DWORD get_app_data_dir_w(wchar_t* buf, size_t buf_len, const wchar_t* appname) {
+    // returns by default len excluding the null terminator
+    // except if buf is too small, returns needed len including null terminator
+    DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, buf_len);
+    DWORD appname_len;
+
+    // had space to put env var
+    bool flag = len < buf_len;
+    if (len > 0 && appname && (appname_len = lstrlenW(appname)) > 0) {
+        DWORD env_len = len;
+        len += appname_len;
+
+        if (len >= buf_len) {
+            return len + flag;
+        }
+
+        memcpy(buf + env_len, appname, appname_len * sizeof(wchar_t));
+        buf[len] = L'\0';
+    }
+    
+    return len;
+}
 
 static void display_error(DWORD win32_err) {
     LPWSTR error;
@@ -319,44 +322,6 @@ static void display_error(DWORD win32_err) {
     if (len > 0) LocalFree(error);
 }
 
-const Clay_Color COLOR_LIGHT = (Clay_Color) {224, 215, 210, 255};
-const Clay_Color COLOR_RED = (Clay_Color) {168, 66, 28, 255};
-const Clay_Color COLOR_ORANGE = (Clay_Color) {225, 138, 50, 255};
-
-void HandleClayErrors(Clay_ErrorData errorData) {
-    // See the Clay_ErrorData struct for more information
-    printf("%s", errorData.errorText.chars);
-    // switch(errorData.errorType) {
-    //     // etc
-    // }
-}
-
-// Example measure text function
-// static inline Clay_Dimensions MeasureText(Clay_StringSlice text, Clay_TextElementConfig *config, uintptr_t userData) {
-//     (void)userData;
-//     // Clay_TextElementConfig contains members such as fontId, fontSize, letterSpacing etc
-//     // Note: Clay_String->chars is not guaranteed to be null terminated
-//     return (Clay_Dimensions) {
-//             .width = text.length * config->fontSize, // <- this will only work for monospace fonts, see the renderers/ directory for more advanced text measurement
-//             .height = config->fontSize
-//     };
-// }
-
-// Layout config is just a struct that can be declared statically, or inline
-Clay_ElementDeclaration sidebarItemConfig = (Clay_ElementDeclaration) {
-    .layout = {
-        .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_FIXED(50) }
-    },
-    .backgroundColor = COLOR_ORANGE
-};
-
-// Re-useable components are just normal functions
-void SidebarItemComponent() {
-    CLAY(sidebarItemConfig) {
-        // children go here...
-    }
-}
-
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int /*nCmdShow*/) {
     //LPWSTR cause = NULL;
@@ -366,6 +331,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     HWND wnd = NULL;
 
     IDirect3DDevice9 *device = NULL;
+    struct nk_context* nk_ctx = NULL;
 
     PROCESS_INFORMATION hookx64_pi = {0};
 
@@ -394,11 +360,19 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
         goto cleanup;
     }
 
+    nk_ctx = nk_d3d9_init(device, WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    // todo: add a custom font renderer
+    //       with glyph fallbacks and all
+    struct nk_font_atlas *atlas;
+    nk_d3d9_font_stash_begin(&atlas);
+    nk_d3d9_font_stash_end();
+
     STARTUPINFOW si = {0};
     si.cb = sizeof(si);
 
-    // wchar_t hookx64_path[MAX_PATH];
-    // wchar_t cmd_line[] = L"hookx64.exe overlayx64.dll";
+    wchar_t hookx64_path[MAX_PATH];
+    wchar_t cmd_line[] = L"hookx64.exe overlayx64.dll";
 
     // if (get_app_data_dir_w(hookx64_path, MAX_PATH, L"\\Overlap\\hookx64.exe") > MAX_PATH) {
     //     err = ERROR_INSUFFICIENT_BUFFER;
@@ -421,53 +395,75 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     //     goto cleanup;
     // }
 
-    // tood: check for alloc failure
-    size_t mem_size = Clay_MinMemorySize();
-    Clay_Arena arena = Clay_CreateArenaWithCapacityAndMemory(mem_size, malloc(mem_size));
-
-    Clay_Initialize(arena, (Clay_Dimensions) { WINDOW_WIDTH, WINDOW_HEIGHT }, (Clay_ErrorHandler) { HandleClayErrors, NULL });
-
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
+        nk_input_begin(nk_ctx);
         TranslateMessage(&msg);
         DispatchMessage(&msg);
-        
-        Clay_SetLayoutDimensions((Clay_Dimensions) { WINDOW_WIDTH, WINDOW_HEIGHT });
-        Clay_SetPointerState((Clay_Vector2) { 0, 0 }, false);
-        Clay_UpdateScrollContainers(true, (Clay_Vector2) { 0, 0 }, 16.6f);
+        nk_input_end(nk_ctx);
 
-        Clay_BeginLayout();
+        struct nk_rect bounds;
+        if (nk_begin(nk_ctx, "Overlap Launcher", nk_rect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT), NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+            nk_layout_row_dynamic(nk_ctx, 30.0, 3);
 
-        // An example of laying out a UI with a fixed width sidebar and flexible width main content
-        CLAY({ .id = CLAY_ID("OuterContainer"), .layout = { .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(16), .childGap = 16 }, .backgroundColor = {250,250,255,255} }) {
-            CLAY({
-                .id = CLAY_ID("SideBar"),
-                .layout = { .layoutDirection = CLAY_TOP_TO_BOTTOM, .sizing = { .width = CLAY_SIZING_FIXED(300), .height = CLAY_SIZING_GROW(0) }, .padding = CLAY_PADDING_ALL(16), .childGap = 16 },
-                .backgroundColor = COLOR_LIGHT
-            }) {
-                // CLAY({ .id = CLAY_ID("ProfilePictureOuter"), .layout = { .sizing = { .width = CLAY_SIZING_GROW(0) }, .padding = CLAY_PADDING_ALL(16), .childGap = 16, .childAlignment = { .y = CLAY_ALIGN_Y_CENTER } }, .backgroundColor = COLOR_RED }) {
-                //     CLAY({ .id = CLAY_ID("ProfilePicture"), .layout = { .sizing = { .width = CLAY_SIZING_FIXED(60), .height = CLAY_SIZING_FIXED(60) }}, .image = { .imageData = &profilePicture } }) {}
-                //     CLAY_TEXT(CLAY_STRING("Clay - UI Library"), CLAY_TEXT_CONFIG({ .fontSize = 24, .textColor = {255, 255, 255, 255} }));
-                // }
+            bounds = nk_widget_bounds(nk_ctx);
+            nk_fill_rect(
+                &nk_ctx->current->buffer,
+                nk_rect(bounds.x, bounds.y + bounds.h, bounds.w, 1.0f),
+                nk_false,
+                nk_ctx->style.text.color);
+            nk_button_label(nk_ctx, "Injected");
 
-                // Standard C code like loops etc work inside components
-                for (int i = 0; i < 5; i++) {
-                    SidebarItemComponent();
+            bounds = nk_widget_bounds(nk_ctx);
+            nk_fill_rect(
+                &nk_ctx->current->buffer,
+                nk_rect(bounds.x, bounds.y + bounds.h, bounds.w, 1.0f),
+                nk_false,
+                nk_ctx->style.text.color);
+            nk_button_label(nk_ctx, "Excluded");
+
+            bounds = nk_widget_bounds(nk_ctx);
+            nk_fill_rect(
+                &nk_ctx->current->buffer,
+                nk_rect(bounds.x, bounds.y + bounds.h, bounds.w, 1.0f),
+                nk_false,
+                nk_ctx->style.text.color);
+            nk_button_label(nk_ctx, "Settings");
+
+            // gap!
+            nk_layout_row_dynamic(nk_ctx, 15.0, 3);
+
+            int len = hmlen(hooked_procs);
+            for (int i = 0; i < len; i++) {
+                nk_layout_row_template_begin(nk_ctx, 20.0);
+                nk_layout_row_template_push_static(nk_ctx, 16.0);
+                nk_layout_row_template_push_dynamic(nk_ctx);
+                nk_layout_row_template_end(nk_ctx);
+
+                nk_label(nk_ctx, "*", NK_TEXT_CENTERED);
+                nk_label(nk_ctx, hooked_procs[i].value, NK_TEXT_LEFT);
+
+                if (len == i + 1) {
+                    continue;
                 }
 
-                CLAY({ .id = CLAY_ID("MainContent"), .layout = { .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_GROW(0) } }, .backgroundColor = COLOR_LIGHT }) {}
+                nk_layout_row_dynamic(nk_ctx, 1.0f, 1);
+                nk_rule_horizontal(nk_ctx, nk_ctx->style.text.color, nk_false);
             }
         }
+        nk_end(nk_ctx);
 
-        Clay_RenderCommandArray render_commands = Clay_EndLayout();
-
-        if (FAILED(hr = render_d3d9_objects(device, render_commands))) {
+        if (FAILED(hr = render_d3d9_objects(device))) {
             err = HRESULT_CODE(hr);
             goto cleanup;
         }
     }
 
 cleanup:
+    for (int i = 0; i < hmlen(hooked_procs); i++) {
+        free(hooked_procs[i].value);
+    }
+    hmfree(hooked_procs);
 
     // todo: we can even add metadata like: failed to load icon\n{err}
     //       add some error_obj{ why: str, code: win_err }
@@ -480,6 +476,7 @@ cleanup:
         CloseHandle(hookx64_pi.hProcess);
     }
 
+    if (nk_ctx) nk_d3d9_shutdown();
     if (device) IDirect3DDevice9_Release(device);
     if (wnd) destroy_app_window(wnd, hInstance);
     if (icon) DestroyIcon(icon);
