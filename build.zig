@@ -27,6 +27,17 @@ pub fn build(b: *std.Build) void {
     const hook_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
+    });
+
+    hook_mod.linkSystemLibrary("user32", .{});
+    hook_mod.linkSystemLibrary("dwmapi", .{});
+
+    hook_mod.addIncludePath(stb.path(""));
+    
+    hook_mod.addCSourceFile(.{
+        .file = b.path("src/hook.c"),
+        .flags = flags,
     });
 
     const hook = b.addExecutable(.{
@@ -34,24 +45,25 @@ pub fn build(b: *std.Build) void {
         .root_module = hook_mod,
     });
 
-    hook.linkLibC();
-    hook.linkSystemLibrary("user32");
-    hook.linkSystemLibrary("dwmapi");
-
-    hook.addIncludePath(stb.path(""));
-
-    hook.subsystem = .Windows;
-    
-    hook.addCSourceFile(.{
-        .file = b.path("src/hook.c"),
-        .flags = flags,
-    });
-
     b.installArtifact(hook);
     
     const overlap_mod = b.createModule(.{
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
+    });
+
+    overlap_mod.linkSystemLibrary("user32", .{});
+    overlap_mod.linkSystemLibrary("dwmapi", .{});
+    overlap_mod.linkSystemLibrary("d3d9", .{});
+
+    overlap_mod.addIncludePath(nuklear.path(""));
+    overlap_mod.addIncludePath(nuklear.path("demo/d3d9"));
+    overlap_mod.addIncludePath(stb.path(""));
+
+    overlap_mod.addCSourceFile(.{
+        .file = b.path("src/app.c"),
+        .flags = flags,
     });
 
     const overlap = b.addExecutable(.{
@@ -59,21 +71,7 @@ pub fn build(b: *std.Build) void {
         .root_module = overlap_mod,
     });
 
-    overlap.linkLibC();
-    overlap.linkSystemLibrary("user32");
-    overlap.linkSystemLibrary("dwmapi");
-    overlap.linkSystemLibrary("d3d9");
-
-    overlap.addIncludePath(nuklear.path(""));
-    overlap.addIncludePath(nuklear.path("demo/d3d9"));
-    overlap.addIncludePath(stb.path(""));
-
     overlap.subsystem = .Windows;
-
-    overlap.addCSourceFile(.{
-        .file = b.path("src/app.c"),
-        .flags = flags,
-    });
 
     b.installArtifact(overlap);
 }

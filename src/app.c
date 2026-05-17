@@ -276,28 +276,28 @@ static void destroy_app_window(HWND wnd, HINSTANCE instance) {
     UnregisterClass(TEXT(WINDOW_CLASSNAME), instance);
 }
 
-static DWORD get_app_data_dir_w(wchar_t* buf, size_t buf_len, const wchar_t* appname) {
-    // returns by default len excluding the null terminator
-    // except if buf is too small, returns needed len including null terminator
-    DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, buf_len);
-    DWORD appname_len;
-
-    // had space to put env var
-    bool flag = len < buf_len;
-    if (len > 0 && appname && (appname_len = lstrlenW(appname)) > 0) {
-        DWORD env_len = len;
-        len += appname_len;
-
-        if (len >= buf_len) {
-            return len + flag;
-        }
-
-        memcpy(buf + env_len, appname, appname_len * sizeof(wchar_t));
-        buf[len] = L'\0';
-    }
-    
-    return len;
-}
+// static DWORD get_app_data_dir_w(wchar_t* buf, size_t buf_len, const wchar_t* appname) {
+//     // returns by default len excluding the null terminator
+//     // except if buf is too small, returns needed len including null terminator
+//     DWORD len = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, buf_len);
+//     DWORD appname_len;
+//
+//     // had space to put env var
+//     bool flag = len < buf_len;
+//     if (len > 0 && appname && (appname_len = lstrlenW(appname)) > 0) {
+//         DWORD env_len = len;
+//         len += appname_len;
+//
+//         if (len >= buf_len) {
+//             return len + flag;
+//         }
+//
+//         memcpy(buf + env_len, appname, appname_len * sizeof(wchar_t));
+//         buf[len] = L'\0';
+//     }
+//
+//     return len;
+// }
 
 static void display_error(DWORD win32_err) {
     LPWSTR error;
@@ -371,29 +371,29 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     STARTUPINFOW si = {0};
     si.cb = sizeof(si);
 
-    wchar_t hookx64_path[MAX_PATH];
-    wchar_t cmd_line[] = L"hookx64.exe overlayx64.dll";
+    // wchar_t hookx64_path[MAX_PATH];
+    // wchar_t cmd_line[] = L"hookx64.exe overlayx64.dll";
 
-    if (get_app_data_dir_w(hookx64_path, MAX_PATH, L"\\Overlap\\hookx64.exe") > MAX_PATH) {
-        err = ERROR_INSUFFICIENT_BUFFER;
-        goto cleanup;
-    }
+    // if (get_app_data_dir_w(hookx64_path, MAX_PATH, L"\\Overlap\\hookx64.exe") > MAX_PATH) {
+    //     err = ERROR_INSUFFICIENT_BUFFER;
+    //     goto cleanup;
+    // }
 
-    if (!CreateProcessW(
-        hookx64_path,
-        cmd_line,
-        NULL,
-        NULL,
-        FALSE,
-        0,
-        NULL,
-        NULL,
-        &si,
-        &hookx64_pi)) {
-
-        err = GetLastError();
-        goto cleanup;
-    }
+    // if (!CreateProcessW(
+    //     hookx64_path,
+    //     cmd_line,
+    //     NULL,
+    //     NULL,
+    //     FALSE,
+    //     0,
+    //     NULL,
+    //     NULL,
+    //     &si,
+    //     &hookx64_pi)) {
+    //
+    //     err = GetLastError();
+    //     goto cleanup;
+    // }
 
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0)) {
