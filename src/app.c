@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
 #define UNICODE
 #define COBJMACROS
 #define WIN32_LEAN_AND_MEAN
+#include <stdio.h>
+#include <stdlib.h>
 #include <windows.h>
 #include <shlobj.h>
 #include <pathcch.h>
@@ -103,6 +103,7 @@ IDirect3DVertexBuffer9* g_vb;
 IDirect3DIndexBuffer9*  g_ib;
 
 // impl from https://github.com/ocornut/imgui/blob/master/backends/imgui_impl_dx9.cpp
+// tood: only show window when d3d stuff is initalized and optionaly trough a first draw call
 static HRESULT create_d3d9_device_objects(IDirect3DDevice9* device) {
     HRESULT result;
 
@@ -208,6 +209,8 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
     CUSTOMVERTEX* vtx;
     uint16_t* idx;
 
+    // todo: handle err paths and daym this code is trash
+
     hr = IDirect3DVertexBuffer9_Lock(g_vb, 0, 256 * sizeof(CUSTOMVERTEX), (void**)&vtx, D3DLOCK_DISCARD);
     if (FAILED(hr)) {
         return hr;
@@ -218,6 +221,9 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
         return hr;
     }
 
+    uint16_t vc = 0;
+    uint16_t ic = 0;
+
     for (int i = 1; i < commands.length; i++) {
         Clay_RenderCommand* cmd = &commands.internalArray[i];
         Clay_BoundingBox bbox = cmd->boundingBox;
@@ -225,8 +231,6 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
         switch (cmd->commandType) {
             case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
                 Clay_RectangleRenderData* rect = &cmd->renderData.rectangle;
-
-                printf("%f\n", rect->backgroundColor.g);
 
                 D3DCOLOR col = D3DCOLOR_ARGB(
                     (DWORD)rect->backgroundColor.a,
@@ -240,8 +244,11 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
                 *vtx++ = (CUSTOMVERTEX) { { bbox.x + bbox.width, bbox.y + bbox.height, 0.0f }, col };
                 *vtx++ = (CUSTOMVERTEX) { { bbox.x,              bbox.y + bbox.height, 0.0f }, col };
 
-                *idx++ = 0; *idx++ = 1; *idx++ = 2;
-                *idx++ = 0; *idx++ = 2; *idx++ = 3;
+                *idx++ = vc + 0; *idx++ = vc + 1; *idx++ = vc + 2;
+                *idx++ = vc + 0; *idx++ = vc + 2; *idx++ = vc + 3;
+
+                vc += 4;
+                ic += 6;
 
                 break;
             }
@@ -313,7 +320,7 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
         IDirect3DDevice9_SetTransform(device, D3DTS_PROJECTION, &mat_projection);
     }
 
-    IDirect3DDevice9_DrawIndexedPrimitive(device, D3DPT_TRIANGLELIST, 0, 0, 4, 0, 2);
+    IDirect3DDevice9_DrawIndexedPrimitive(device, D3DPT_TRIANGLELIST, 0, 0, vc, 0, ic / 3);
 
     hr = IDirect3DDevice9_EndScene(device);
     if (FAILED(hr)) {
@@ -480,21 +487,6 @@ void HandleClayErrors(Clay_ErrorData errorData) {
 //     };
 // }
 
-// Layout config is just a struct that can be declared statically, or inline
-Clay_ElementDeclaration sidebarItemConfig = (Clay_ElementDeclaration) {
-    .layout = {
-        .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_FIXED(50) }
-    },
-    .backgroundColor = COLOR_ORANGE
-};
-
-// Re-useable components are just normal functions
-void SidebarItemComponent() {
-    CLAY(sidebarItemConfig) {
-        // children go here...
-    }
-}
-
 int APIENTRY
 WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int /*nCmdShow*/) {
     //LPWSTR cause = NULL;
@@ -581,24 +573,23 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
 
         Clay_BeginLayout();
 
-        // An example of laying out a UI with a fixed width sidebar and flexible width main content
-        CLAY({ .id = CLAY_ID("OuterContainer"), .layout = { .sizing = {CLAY_SIZING_GROW(0), CLAY_SIZING_GROW(0)}, .padding = CLAY_PADDING_ALL(16), .childGap = 16 }, .backgroundColor = {250,250,255,255} }) {
-            CLAY({
-                .id = CLAY_ID("SideBar"),
-                .layout = { .layoutDirection = CLAY_TOP_TO_BOTTOM, .sizing = { .width = CLAY_SIZING_FIXED(300), .height = CLAY_SIZING_GROW(0) }, .padding = CLAY_PADDING_ALL(16), .childGap = 16 },
-                .backgroundColor = COLOR_LIGHT
-            }) {
-                // CLAY({ .id = CLAY_ID("ProfilePictureOuter"), .layout = { .sizing = { .width = CLAY_SIZING_GROW(0) }, .padding = CLAY_PADDING_ALL(16), .childGap = 16, .childAlignment = { .y = CLAY_ALIGN_Y_CENTER } }, .backgroundColor = COLOR_RED }) {
-                //     CLAY({ .id = CLAY_ID("ProfilePicture"), .layout = { .sizing = { .width = CLAY_SIZING_FIXED(60), .height = CLAY_SIZING_FIXED(60) }}, .image = { .imageData = &profilePicture } }) {}
-                //     CLAY_TEXT(CLAY_STRING("Clay - UI Library"), CLAY_TEXT_CONFIG({ .fontSize = 24, .textColor = {255, 255, 255, 255} }));
-                // }
-
-                // Standard C code like loops etc work inside components
-                for (int i = 0; i < 5; i++) {
-                    SidebarItemComponent();
-                }
-
-                CLAY({ .id = CLAY_ID("MainContent"), .layout = { .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_GROW(0) } }, .backgroundColor = COLOR_LIGHT }) {}
+        CLAY({
+            .id = CLAY_ID("main"),
+            .layout = {
+                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_GROW(0) },
+                .padding = CLAY_PADDING_ALL(16),
+                .childGap = 16
+             },
+            .backgroundColor = COLOR_LIGHT
+        }) {
+            for (int i = 0; i < 5; i++) {
+                CLAY({
+                    .layout = {
+                        .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_FIXED(50) }
+                    },
+                    .backgroundColor = COLOR_ORANGE
+                });
             }
         }
 
