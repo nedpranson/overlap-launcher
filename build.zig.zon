@@ -6,6 +6,10 @@
             .url = "https://github.com/nicbarker/clay/archive/refs/tags/v0.14.tar.gz",
             .hash = "N-V-__8AALPgZwA7tLqRlkCCL7OrkEhj4xZ3y_0FxgR42t0W",
         },
+        .onecore = .{
+            .url = "git+https://github.com/nedpranson/onecore#c05190a54541673159b899e8d7f128cfe819908b",
+            .hash = "N-V-__8AAJjjBQHSSxXxLmXMhjGboRsczdiZOlEYOybwxm1u",
+        },
     },
     .minimum_zig_version = "0.15.2",
     .paths = .{""},

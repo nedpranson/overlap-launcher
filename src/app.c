@@ -10,7 +10,11 @@
 #include <d3d9.h>
 
 #define CLAY_IMPLEMENTATION
-#include "clay.h"
+#include <clay.h>
+
+#define ONECORE_LOADER_IMPLEMENTATION
+#define ONECORE_FINDER_IMPLEMENTATION
+#include <onecore.h>
 
 #define WM_TRAYICON   (WM_USER + 1)
 #define WM_HOOKNOTIFY (WM_USER + 2)
@@ -22,6 +26,12 @@
 
 #define TRAY_TITLE 1
 #define TRAY_EXIT 2
+
+typedef struct {
+    IDirect3DDevice9*       device;
+    IDirect3DVertexBuffer9* vertex_buffer;
+    IDirect3DIndexBuffer9*  index_buffer;
+} Renderer;
 
 static LRESULT CALLBACK
 WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -99,13 +109,9 @@ typedef struct {
 
 #define D3DFVF_CUSTOMVERTEX (D3DFVF_XYZ | D3DFVF_DIFFUSE)
 
-IDirect3DVertexBuffer9* g_vb;
-IDirect3DIndexBuffer9*  g_ib;
-
-// impl from https://github.com/ocornut/imgui/blob/master/backends/imgui_impl_dx9.cpp
-// tood: only show window when d3d stuff is initalized and optionaly trough a first draw call
-static HRESULT create_d3d9_device_objects(IDirect3DDevice9* device) {
-    HRESULT result;
+static HRESULT init_render(IDirect3DDevice9* device, Renderer* renderer) {
+    HRESULT  result;
+    Renderer out;
 
     result = IDirect3DDevice9_CreateVertexBuffer(
         device,
@@ -113,7 +119,7 @@ static HRESULT create_d3d9_device_objects(IDirect3DDevice9* device) {
         D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY,
         D3DFVF_CUSTOMVERTEX,
         D3DPOOL_DEFAULT,
-        &g_vb,
+        &out.vertex_buffer,
         NULL
     );
 
@@ -127,16 +133,45 @@ static HRESULT create_d3d9_device_objects(IDirect3DDevice9* device) {
         D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY,
         D3DFMT_INDEX16,
         D3DPOOL_DEFAULT,
-        &g_ib,
+        &out.index_buffer,
         NULL
     );
 
     if (FAILED(result)) {
-        IDirect3DVertexBuffer9_Release(g_vb);
+        IDirect3DVertexBuffer9_Release(out.vertex_buffer);
         return result;
     }
 
+    IDirect3DDevice9_SetRenderState(device, D3DRS_ALPHABLENDENABLE, TRUE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_ZENABLE, FALSE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_ZWRITEENABLE, FALSE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_CULLMODE, D3DCULL_NONE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_SCISSORTESTENABLE, TRUE);
+    IDirect3DDevice9_SetRenderState(device, D3DRS_LIGHTING, FALSE);
+    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1);
+    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_ALPHAOP,   D3DTOP_SELECTARG1);
+    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+    IDirect3DDevice9_SetTextureStageState(device, 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    IDirect3DDevice9_SetTextureStageState(device, 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+
+    out.device = device;
+    *renderer = out;
+
+    IDirect3DDevice9_AddRef(device);
     return S_OK;
+}
+
+static void deinit_render(const Renderer* r) {
+    IDirect3DVertexBuffer9_Release(r->vertex_buffer);
+    IDirect3DIndexBuffer9_Release(r->index_buffer);
+    IDirect3DDevice9_Release(r->device);
 }
 
 static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
@@ -188,11 +223,11 @@ static HRESULT create_d3d9_device(HWND wnd, IDirect3DDevice9** device) {
     return hr;
 }
 
-static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandArray commands) {
+static HRESULT draw_command_list(const Renderer* r, Clay_RenderCommandArray commands) {
     HRESULT hr;
 
     hr = IDirect3DDevice9_Clear(
-        device,
+        r->device,
         0,
         NULL,
         D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL,
@@ -201,7 +236,7 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
         return hr;
     }
 
-    hr = IDirect3DDevice9_BeginScene(device);
+    hr = IDirect3DDevice9_BeginScene(r->device);
     if (FAILED(hr)) {
         return hr;
     }
@@ -209,15 +244,14 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
     CUSTOMVERTEX* vtx;
     uint16_t* idx;
 
-    // todo: handle err paths and daym this code is trash
-
-    hr = IDirect3DVertexBuffer9_Lock(g_vb, 0, 256 * sizeof(CUSTOMVERTEX), (void**)&vtx, D3DLOCK_DISCARD);
+    hr = IDirect3DVertexBuffer9_Lock(r->vertex_buffer, 0, 256 * sizeof(CUSTOMVERTEX), (void**)&vtx, D3DLOCK_DISCARD);
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = IDirect3DIndexBuffer9_Lock(g_ib, 0, 64 * sizeof(uint16_t), (void**)&idx, D3DLOCK_DISCARD);
+    hr = IDirect3DIndexBuffer9_Lock(r->index_buffer, 0, 64 * sizeof(uint16_t), (void**)&idx, D3DLOCK_DISCARD);
     if (FAILED(hr)) {
+        IDirect3DVertexBuffer9_Unlock(r->vertex_buffer);
         return hr;
     }
 
@@ -258,12 +292,12 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
         }
     }
 
-    IDirect3DVertexBuffer9_Unlock(g_vb);
-    IDirect3DIndexBuffer9_Unlock(g_ib);
+    IDirect3DVertexBuffer9_Unlock(r->vertex_buffer);
+    IDirect3DIndexBuffer9_Unlock(r->index_buffer);
 
-    IDirect3DDevice9_SetStreamSource(device, 0, g_vb, 0, sizeof(CUSTOMVERTEX));
-    IDirect3DDevice9_SetIndices(device, g_ib);
-    IDirect3DDevice9_SetFVF(device, D3DFVF_CUSTOMVERTEX);
+    IDirect3DDevice9_SetStreamSource(r->device, 0, r->vertex_buffer, 0, sizeof(CUSTOMVERTEX));
+    IDirect3DDevice9_SetIndices(r->device, r->index_buffer);
+    IDirect3DDevice9_SetFVF(r->device, D3DFVF_CUSTOMVERTEX);
 
     D3DVIEWPORT9 vp;
     vp.X = vp.Y = 0;
@@ -272,30 +306,11 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
     vp.MinZ = 0.0f;
     vp.MaxZ = 1.0f;
 
-    IDirect3DDevice9_SetViewport(device, &vp);
+    IDirect3DDevice9_SetViewport(r->device, &vp);
 
-    IDirect3DDevice9_SetPixelShader(device, NULL);
-    IDirect3DDevice9_SetVertexShader(device, NULL);
-
-    IDirect3DDevice9_SetRenderState(device, D3DRS_ALPHABLENDENABLE, TRUE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_BLENDOP, D3DBLENDOP_ADD);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_ZENABLE, FALSE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_ZWRITEENABLE, FALSE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_CULLMODE, D3DCULL_NONE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_SCISSORTESTENABLE, TRUE);
-    IDirect3DDevice9_SetRenderState(device, D3DRS_LIGHTING, FALSE);
-    IDirect3DDevice9_SetTexture(device, 0, NULL);
-    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_COLOROP,   D3DTOP_SELECTARG1);
-    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
-    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_ALPHAOP,   D3DTOP_SELECTARG1);
-    IDirect3DDevice9_SetTextureStageState(device, 0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
-    IDirect3DDevice9_SetTextureStageState(device, 1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    IDirect3DDevice9_SetTextureStageState(device, 1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    IDirect3DDevice9_SetPixelShader(r->device, NULL);
+    IDirect3DDevice9_SetVertexShader(r->device, NULL);
+    IDirect3DDevice9_SetTexture(r->device, 0, NULL);
 
     {
         float L = 0;
@@ -315,20 +330,19 @@ static HRESULT render_d3d9_objects(IDirect3DDevice9* device, Clay_RenderCommandA
             0.0f,         0.0f,         0.5f,  0.0f,
             (L+R)/(L-R),  (T+B)/(B-T),  0.5f,  1.0f
         } } };
-        IDirect3DDevice9_SetTransform(device, D3DTS_WORLD, &mat_identity);
-        IDirect3DDevice9_SetTransform(device, D3DTS_VIEW, &mat_identity);
-        IDirect3DDevice9_SetTransform(device, D3DTS_PROJECTION, &mat_projection);
+        IDirect3DDevice9_SetTransform(r->device, D3DTS_WORLD, &mat_identity);
+        IDirect3DDevice9_SetTransform(r->device, D3DTS_VIEW, &mat_identity);
+        IDirect3DDevice9_SetTransform(r->device, D3DTS_PROJECTION, &mat_projection);
     }
 
-    IDirect3DDevice9_DrawIndexedPrimitive(device, D3DPT_TRIANGLELIST, 0, 0, vc, 0, ic / 3);
+    IDirect3DDevice9_DrawIndexedPrimitive(r->device, D3DPT_TRIANGLELIST, 0, 0, vc, 0, ic / 3);
 
-    hr = IDirect3DDevice9_EndScene(device);
+    hr = IDirect3DDevice9_EndScene(r->device);
     if (FAILED(hr)) {
         return hr;
     }
 
-    hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
-    return hr;
+    return IDirect3DDevice9_Present(r->device, NULL, NULL, NULL, NULL);
 }
 
 static HWND create_app_window(HINSTANCE instance, HICON icon) {
@@ -498,8 +512,13 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     IDirect3DDevice9 *device = NULL;
 
     PROCESS_INFORMATION hookx64_pi = {0};
+    Renderer renderer;
 
     HRESULT hr;
+
+    oc_library* library = NULL;
+    oc_collection collection;
+    oc_face face;
 
     icon = LoadImage(
         NULL,
@@ -524,7 +543,7 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
         goto cleanup;
     }
 
-    if (FAILED(hr = create_d3d9_device_objects(device))) {
+    if (FAILED(hr = init_render(device, &renderer))) {
         err = HRESULT_CODE(hr);
         goto cleanup;
     }
@@ -555,6 +574,18 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
     //     err = GetLastError();
     //     goto cleanup;
     // }
+
+    if ((err = oc_init_library(&library)) != oc_error_ok) {
+        goto cleanup;
+    }
+
+    if ((err = ocf_init_collection(library, &collection)) != oc_error_ok) {
+        goto cleanup;
+    }
+
+    if ((err = ocf_load_fonts(&collection)) != oc_error_ok) {
+        goto cleanup;
+    }
 
     // tood: check for alloc failure
     size_t mem_size = Clay_MinMemorySize();
@@ -588,14 +619,15 @@ WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, PSTR /*pCmdLine*/, int
                     .layout = {
                         .sizing = { .width = CLAY_SIZING_GROW(0), .height = CLAY_SIZING_FIXED(50) }
                     },
-                    .backgroundColor = COLOR_ORANGE
+                    .backgroundColor = COLOR_ORANGE,
+                    .cornerRadius = CLAY_CORNER_RADIUS(16),
                 });
             }
         }
 
         Clay_RenderCommandArray render_commands = Clay_EndLayout();
 
-        if (FAILED(hr = render_d3d9_objects(device, render_commands))) {
+        if (FAILED(hr = draw_command_list(&renderer, render_commands))) {
             err = HRESULT_CODE(hr);
             goto cleanup;
         }
@@ -614,9 +646,20 @@ cleanup:
         CloseHandle(hookx64_pi.hProcess);
     }
 
-    if (device) IDirect3DDevice9_Release(device);
+    if (device) {
+        // todo: can crash as we do not know that device objects are created
+        deinit_render(&renderer);
+        IDirect3DDevice9_Release(device);
+    }
     if (wnd) destroy_app_window(wnd, hInstance);
     if (icon) DestroyIcon(icon);
 
-    return err == S_OK;
+    if (library) {
+        // tood: can crash as collection can be not initialized
+        ocl_free_face(&face);
+        ocf_free_collection(&collection);
+        oc_free_library(library);
+    }
+
+    return err != S_OK;
 }

@@ -4,3 +4,4 @@ CompileFlags:
     - "-std=c23"
     - "-I/home/nedas/.local/share/mise/installs/zig/latest/lib/libc/include/any-windows-any/"
     - "-I/home/nedas/Work/overlap-launcher/zig-pkg/N-V-__8AALPgZwA7tLqRlkCCL7OrkEhj4xZ3y_0FxgR42t0W/"
+    - "-I/home/nedas/Work/overlap-launcher/zig-pkg/N-V-__8AADXjBQFMC1Uetx5qghUnbvWadER5KaRBZL_6JVbV/"

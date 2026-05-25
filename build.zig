@@ -11,6 +11,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const onecore = b.dependency("onecore", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const flags = &[_][]const u8 {
         "-Wall",
         "-Wextra",
@@ -49,8 +54,10 @@ pub fn build(b: *std.Build) void {
     overlap_mod.linkSystemLibrary("user32", .{});
     overlap_mod.linkSystemLibrary("dwmapi", .{});
     overlap_mod.linkSystemLibrary("d3d9", .{});
+    overlap_mod.linkSystemLibrary("dwrite", .{});
 
     overlap_mod.addIncludePath(clay.path(""));
+    overlap_mod.addIncludePath(onecore.path(""));
 
     overlap_mod.addCSourceFile(.{
         .file = b.path("src/app.c"),
@@ -65,4 +72,15 @@ pub fn build(b: *std.Build) void {
     overlap.subsystem = .Windows;
 
     b.installArtifact(overlap);
+
+    const run_step = b.step("run", "Run the app");
+
+    const run_cmd = b.addRunArtifact(overlap);
+    run_step.dependOn(&run_cmd.step);
+
+    run_cmd.step.dependOn(b.getInstallStep());
+
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
 }
