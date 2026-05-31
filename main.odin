@@ -53,6 +53,7 @@ main :: proc() {
     device:         ^d3d11.IDevice
     device_context: ^d3d11.IDeviceContext
 
+    // tood: use FLIP_DISCARD with 2 buffers
     hr := d3d11.CreateDeviceAndSwapChain(
         nil,
         .HARDWARE,
@@ -64,11 +65,11 @@ main :: proc() {
         &{
             BufferDesc = { Format = .R8G8B8A8_UNORM },
             SampleDesc = { Count = 1 },
-            BufferCount = 2,
+            BufferCount = 1,
             BufferUsage = {.RENDER_TARGET_OUTPUT},
             OutputWindow = hwnd,
             Windowed = true,
-            SwapEffect = .FLIP_DISCARD,
+            SwapEffect = .DISCARD,
         },
         &swap_chain,
         &device,
