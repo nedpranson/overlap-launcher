@@ -205,12 +205,17 @@ main :: proc() {
         }
         defer device_context->Unmap(const_buf, 0)
 
+        L := f32(0)
+        R := f32(300)
+        T := f32(0)
+        B := f32(400)
+
         contants := cast(^Contants)resource.pData
         contants.mvp = {
-            1.0, 0.0, 0.0, 0.0,
-            0.0, 1.0, 0.0, 0.0,
-            0.0, 0.0, 1.0, 0.0,
-            0.0, 0.0, 0.0, 1.0
+            2.0 / (R - L), 0.0, 0.0, (R + L) / (L - R),
+            0.0, 2.0 / (T - B), 0.0, (T + B) / (B - T),
+            0.0, 0.0, 0.5, 0.5,
+            0.0, 0.0, 0.0, 1.0,
         }
     }
 
@@ -243,9 +248,14 @@ main :: proc() {
 
             vertices := cast([^]Vertex)resource.pData
 
-            vertices[0] = { { 0.0, 0.5 }, 0xFFFF0000 }
-            vertices[1] = { { -0.5, -0.5 }, 0xFF00FF00 }
-            vertices[2] = { { 0.5, -0.5 }, 0xFF0000FF }
+
+            vertices[0] = { { 150.0, 0.0 }, 0xFFFF0000 }
+            vertices[1] = { { 0, 400 }, 0xFF00FF00 }
+            vertices[2] = { { 300, 400 }, 0xFF0000FF }
+
+            // vertices[0] = { { 0.0, 0.5 }, 0xFFFF0000 }
+            // vertices[1] = { { -0.5, -0.5 }, 0xFF00FF00 }
+            // vertices[2] = { { 0.5, -0.5 }, 0xFF0000FF }
         }
 
         device_context->ClearRenderTargetView(rtv, &[4]f32{0.25, 0.5, 1.0, 1.0})
