@@ -76,7 +76,7 @@ main :: proc() {
     )
 
     if win32.FAILED(hr) {
-        fmt.eprintln("win32::CreateDeviceAndSwapChain failed:", hr)
+        fmt.eprintln("d3d11::CreateDeviceAndSwapChain failed:", hr)
         return
     }
 
@@ -87,7 +87,7 @@ main :: proc() {
     back_buf: ^d3d11.ITexture2D
     hr = swap_chain->GetBuffer(0, d3d11.ITexture2D_UUID, cast(^rawptr)&back_buf)
     if win32.FAILED(hr) {
-        fmt.eprintln("d3d11::GetBuffer failed:", hr)
+        fmt.eprintln("d3d11::ISwapChain::GetBuffer failed:", hr)
         return;
     }
     defer back_buf->Release()
@@ -95,7 +95,7 @@ main :: proc() {
     rtv: ^d3d11.IRenderTargetView
 	hr = device->CreateRenderTargetView(back_buf, nil, &rtv)
     if win32.FAILED(hr) {
-        fmt.eprintln("d3d11::CreateRenderTargetView failed:", hr)
+        fmt.eprintln("d3d11::IDevice::CreateRenderTargetView failed:", hr)
         return;
     }
     defer rtv->Release()
@@ -116,9 +116,9 @@ main :: proc() {
     defer vs_blob->Release()
 
     vs: ^d3d11.IVertexShader
-    hr = device->CreateVertexShader(vs_blob.GetBufferPointer(vs_blob), vs_blob.GetBufferSize(vs_blob), nil, &vs)
+    hr = device->CreateVertexShader(vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), nil, &vs)
     if win32.FAILED(hr) {
-        fmt.eprintln("d3d11::CreateVertexShader failed:", hr)
+        fmt.eprintln("d3d11::IDevice::CreateVertexShader failed:", hr)
         return;
     }
     defer vs->Release()
@@ -139,22 +139,22 @@ main :: proc() {
     defer ps_blob->Release()
 
     ps: ^d3d11.IPixelShader
-    hr = device->CreatePixelShader(ps_blob.GetBufferPointer(ps_blob), ps_blob.GetBufferSize(ps_blob), nil, &ps)
+    hr = device->CreatePixelShader(ps_blob->GetBufferPointer(), ps_blob->GetBufferSize(), nil, &ps)
     if win32.FAILED(hr) {
-        fmt.eprintln("d3d11::CreatePixelShader failed:", hr)
+        fmt.eprintln("d3d11::IDevice::CreatePixelShader failed:", hr)
         return;
     }
     defer ps->Release()
 
     input := [?]d3d11.INPUT_ELEMENT_DESC{
-        { "POS", 0, .R32G32_FLOAT,   0,                            0, .VERTEX_DATA, 0 },
-        { "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+        { "POS", 0, .R32G32_FLOAT,       0,                            0, .VERTEX_DATA, 0 },
+        { "COL", 0, .R32G32B32A32_FLOAT, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
     }
 
     layout: ^d3d11.IInputLayout
     hr = device->CreateInputLayout(&input[0], len(input), vs_blob->GetBufferPointer(), vs_blob->GetBufferSize(), &layout)
     if win32.FAILED(hr) {
-        fmt.eprintln("d3d11::CreateInputLayout failed:", hr)
+        fmt.eprintln("d3d11::IDevice::CreateInputLayout failed:", hr)
         return;
     }
     defer layout->Release()
@@ -167,10 +167,51 @@ main :: proc() {
         BindFlags = {.CONSTANT_BUFFER},
     }, nil, &const_buf)
     if win32.FAILED(hr) {
-        fmt.eprintln("d3d11::CreateBuffer failed:", hr)
-        return;
+        fmt.eprintln("d3d11::IDevice::CreateBuffer failed:", hr)
+        return
     }
     defer const_buf->Release()
+
+    vertex_buf: ^d3d11.IBuffer
+    hr = device->CreateBuffer(&{
+        Usage = .DYNAMIC,
+        CPUAccessFlags = {.WRITE},
+        ByteWidth = 3 * size_of(Vertex),
+        BindFlags = {.VERTEX_BUFFER},
+    }, nil, &vertex_buf)
+    if win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateBuffer failed:", hr)
+        return
+    }
+    defer vertex_buf->Release()
+
+    {
+        resource: d3d11.MAPPED_SUBRESOURCE
+
+        hr = device_context->Map(const_buf, 0, .WRITE_DISCARD, {}, &resource)
+        if (win32.FAILED(hr)) {
+            fmt.eprintln("d3d11::IDeviceContext::Map failed:", hr)
+            return
+        }
+        defer device_context->Unmap(const_buf, 0)
+
+        contants := cast(^Contants)resource.pData
+        contants.mvp = {
+            1.0, 0.0, 0.0, 0.0,
+            0.0, 1.0, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            0.0, 0.0, 0.0, 1.0
+        }
+    }
+
+    device_context->OMSetRenderTargets(1, &rtv, nil);
+
+    device_context->RSSetViewports(1, &d3d11.VIEWPORT{ 0, 0, 300, 400, 0.0, 1.0 })
+    device_context->IASetInputLayout(layout)
+    device_context->VSSetConstantBuffers(0, 1, &const_buf)
+    device_context->IASetPrimitiveTopology(.TRIANGLELIST)
+    device_context->VSSetShader(vs, nil, 0)
+    device_context->PSSetShader(ps, nil, 0)
 
     win32.ShowWindow(hwnd, win32.SW_SHOW)
 
@@ -179,18 +220,46 @@ main :: proc() {
         win32.TranslateMessage(&msg)
         win32.DispatchMessageW(&msg)
 
+        {
+            resource: d3d11.MAPPED_SUBRESOURCE
+
+            hr = device_context->Map(vertex_buf, 0, .WRITE_DISCARD, {}, &resource)
+            if (win32.FAILED(hr)) {
+                fmt.eprintln("d3d11::IDeviceContext::Map failed:", hr)
+                return
+            }
+            defer device_context->Unmap(vertex_buf, 0)
+
+            vertices := cast([^]Vertex)resource.pData
+
+            vertices[0] = { { 0.0, 0.5 }, { 1.0, 1.0, 1.0, 1.0 } }
+            vertices[1] = { { -0.5, -0.5 }, { 1.0, 1.0, 1.0, 1.0 } }
+            vertices[2] = { { 0.5, -0.5 }, { 1.0, 1.0, 1.0, 1.0 } }
+        }
+
         device_context->ClearRenderTargetView(rtv, &[4]f32{0.25, 0.5, 1.0, 1.0})
+
+        offset := u32(0)
+        stride := u32(size_of(Vertex))
+
+        device_context->IASetVertexBuffers(0, 1, &vertex_buf, &stride, &offset)
+        device_context->Draw(3, 0)
 
         hr = swap_chain->Present(1, {})
         if win32.FAILED(hr) {
-            fmt.eprintln("d3d11::Present failed:", hr)
+            fmt.eprintln("d3d11::ISwapChain::Present failed:", hr)
             return;
         }
     }
 }
 
-Contants :: struct #align(16) {
+Contants :: struct {
     mvp: matrix[4,4]f32
+}
+
+Vertex :: struct {
+    pos: [2]f32,
+    col: [4]f32,
 }
 
 WndProc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
