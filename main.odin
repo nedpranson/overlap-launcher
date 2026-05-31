@@ -64,10 +64,11 @@ main :: proc() {
         &{
             BufferDesc = { Format = .R8G8B8A8_UNORM },
             SampleDesc = { Count = 1 },
-            BufferCount = 1,
+            BufferCount = 2,
+            BufferUsage = {.RENDER_TARGET_OUTPUT},
             OutputWindow = hwnd,
             Windowed = true,
-            SwapEffect = .DISCARD,
+            SwapEffect = .FLIP_DISCARD,
         },
         &swap_chain,
         &device,
@@ -147,8 +148,8 @@ main :: proc() {
     defer ps->Release()
 
     input := [?]d3d11.INPUT_ELEMENT_DESC{
-        { "POS", 0, .R32G32_FLOAT,       0,                            0, .VERTEX_DATA, 0 },
-        { "COL", 0, .R32G32B32A32_FLOAT, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+        { "POS", 0, .R32G32_FLOAT,   0,                            0, .VERTEX_DATA, 0 },
+        { "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
     }
 
     layout: ^d3d11.IInputLayout
@@ -158,6 +159,14 @@ main :: proc() {
         return;
     }
     defer layout->Release()
+
+    rasterizer: ^d3d11.IRasterizerState
+    hr = device->CreateRasterizerState(&{ FillMode = .SOLID, CullMode = .NONE }, &rasterizer)
+    if win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateRasterizerState failed:", hr)
+        return;
+    }
+    defer rasterizer->Release()
 
     const_buf: ^d3d11.IBuffer
     hr = device->CreateBuffer(&{
@@ -207,6 +216,7 @@ main :: proc() {
     device_context->OMSetRenderTargets(1, &rtv, nil);
 
     device_context->RSSetViewports(1, &d3d11.VIEWPORT{ 0, 0, 300, 400, 0.0, 1.0 })
+    device_context->RSSetState(rasterizer)
     device_context->IASetInputLayout(layout)
     device_context->VSSetConstantBuffers(0, 1, &const_buf)
     device_context->IASetPrimitiveTopology(.TRIANGLELIST)
@@ -232,9 +242,9 @@ main :: proc() {
 
             vertices := cast([^]Vertex)resource.pData
 
-            vertices[0] = { { 0.0, 0.5 }, { 1.0, 1.0, 1.0, 1.0 } }
-            vertices[1] = { { -0.5, -0.5 }, { 1.0, 1.0, 1.0, 1.0 } }
-            vertices[2] = { { 0.5, -0.5 }, { 1.0, 1.0, 1.0, 1.0 } }
+            vertices[0] = { { 0.0, 0.5 }, 0xFFFF0000 }
+            vertices[1] = { { -0.5, -0.5 }, 0xFF00FF00 }
+            vertices[2] = { { 0.5, -0.5 }, 0xFF0000FF }
         }
 
         device_context->ClearRenderTargetView(rtv, &[4]f32{0.25, 0.5, 1.0, 1.0})
@@ -259,7 +269,7 @@ Contants :: struct {
 
 Vertex :: struct {
     pos: [2]f32,
-    col: [4]f32,
+    col: u32,
 }
 
 WndProc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {
