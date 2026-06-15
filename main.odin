@@ -163,9 +163,12 @@ main :: proc() {
     defer ps->Release()
 
     input := [?]d3d11.INPUT_ELEMENT_DESC{
-        { "POS", 0, .R32G32_FLOAT,   0,                            0, .VERTEX_DATA, 0 },
-        { "TEX", 0, .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
-        { "COL", 0, .R8G8B8A8_UNORM, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA, 0 },
+        { "POS", 0,     .R32G32_FLOAT,   0,                            0,   .VERTEX_DATA, 0 },
+        { "TEX", 0,     .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT,   .VERTEX_DATA, 0 },
+
+        { "COL", 0,     .R8G8B8A8_UNORM, 1,                            0, .INSTANCE_DATA, 1 },
+        { "RAD", 0, .R32G32B32A32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
+        { "DIM", 0,       .R32G32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
     }
 
     layout: ^d3d11.IInputLayout
@@ -229,6 +232,19 @@ main :: proc() {
         return
     }
     defer vertex_buf->Release()
+
+    instance_buf: ^d3d11.IBuffer
+    hr = device->CreateBuffer(&{
+        Usage = .DYNAMIC,
+        CPUAccessFlags = {.WRITE},
+        ByteWidth = 2 * size_of(Instance),
+        BindFlags = {.VERTEX_BUFFER},
+    }, nil, &instance_buf)
+    if win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateBuffer failed:", hr)
+        return
+    }
+    defer instance_buf->Release()
 
     {
         resource: d3d11.MAPPED_SUBRESOURCE
@@ -333,29 +349,54 @@ main :: proc() {
             //     }
             // }
 
-            vertices[0] = { { 25.0,  25.0  }, {0.0, 0.0}, 0xFF0000FF } // top-left
-            vertices[1] = { { 275.0, 25.0  }, {1.0, 0.0}, 0xFF00FF00 } // top-right
-            vertices[2] = { { 275.0, 375.0 }, {1.0, 1.0}, 0xFFFF0000 } // bottom-right
+            vertices[0] = { { 25.0,  25.0  }, {0.0, 0.0} }
+            vertices[1] = { { 275.0, 25.0  }, {1.0, 0.0} }
+            vertices[2] = { { 275.0, 375.0 }, {1.0, 1.0} }
 
-            vertices[3] = { { 275.0, 375.0 }, {1.0, 1.0}, 0xFFFF0000 } // bottom-right
-            vertices[4] = { { 25.0,  375.0 }, {0.0, 1.0}, 0xFFFFFF00 } // bottom-left
-            vertices[5] = { { 25.0,  25.0  }, {0.0, 0.0}, 0xFF0000FF } // top-left
-            // vertices[0] = { { 150.0, 0.0 }, 0xFF0000FF }
-            // vertices[1] = { { 0, 400 }, 0xFF00FF00 }
-            // vertices[2] = { { 300, 400 }, 0xFFFF0000 }
+            vertices[3] = { { 275.0, 375.0 }, {1.0, 1.0} }
+            vertices[4] = { { 25.0,  375.0 }, {0.0, 1.0} }
+            vertices[5] = { { 25.0,  25.0  }, {0.0, 0.0} }
 
-            // vertices[0] = { { 150.0, 0.0 }, 0xFF0000FF }
-            // vertices[1] = { { 0, 400 }, 0xFF00FF00 }
-            // vertices[2] = { { 300, 400 }, 0xFFFF0000 }
+
+            vertices[6] = { { 0.0, 0.0  }, {0.0, 0.0} }
+            vertices[7] = { { 100.0, 0.0  }, {1.0, 0.0} }
+            vertices[8] = { { 100.0, 100.0 }, {1.0, 1.0} }
+
+            vertices[9] = { { 100.0, 100.0 }, {1.0, 1.0} }
+            vertices[10] = { { 0.0,  100.0 }, {0.0, 1.0} }
+            vertices[11] = { { 0.0,  0.0  }, {0.0, 0.0} }
+        }
+
+
+        {
+            resource: d3d11.MAPPED_SUBRESOURCE
+
+            hr = device_context->Map(instance_buf, 0, .WRITE_DISCARD, {}, &resource)
+            if (win32.FAILED(hr)) {
+                fmt.eprintln("d3d11::IDeviceContext::Map failed:", hr)
+                return
+            }
+            defer device_context->Unmap(instance_buf, 0)
+
+            instances := cast([^]Instance)resource.pData
+
+            instances[0] = { 0xFFFF00FF, { 0.125, 0.25, 0.375, 0.5 }, { 250.0, 350.0 } }
+            instances[1] = { 0xFFFFFFFF, { 1.0, 1.0, 1.0, 1.0}, { 250.0, 350.0 } }
         }
 
         device_context->ClearRenderTargetView(rtv, &[4]f32{0.25, 0.5, 1.0, 1.0})
 
-        offset := u32(0)
-        stride := u32(size_of(Vertex))
+        vertex_offset := u32(0)
+        vertex_stride := u32(size_of(Vertex))
 
-        device_context->IASetVertexBuffers(0, 1, &vertex_buf, &stride, &offset)
-        device_context->Draw(6, 0)
+        instance_offset := u32(0)
+        instance_stride := u32(size_of(Instance))
+
+        device_context->IASetVertexBuffers(0, 1, &vertex_buf, &vertex_stride, &vertex_offset)
+        device_context->IASetVertexBuffers(1, 1, &instance_buf, &instance_stride, &instance_offset)
+
+        // tood: add unit quad
+        device_context->DrawInstanced(6, 2, 0, 0)
 
         hr = swap_chain->Present(1, {})
         if win32.FAILED(hr) {
@@ -372,14 +413,19 @@ rgba :: proc(r, g, b, a: u8) -> u32 {
            (u32(b) << 0)
 }
 
-Contants :: struct {
+Contants :: struct #align(16) {
     mvp: matrix[4,4]f32
 }
 
-Vertex :: struct {
+Vertex :: struct #align(16) {
     pos: [2]f32,
     uv: [2]f32,
+}
+
+Instance :: struct #align(16) {
     col: u32,
+    rad: [4]f32,
+    dim: [2]f32,
 }
 
 handle_clay_errors :: proc "c" (error: clay.ErrorData) {
@@ -410,14 +456,19 @@ cbuffer vertexBuffer : register(b0) {
 
 struct vs_in {
     float2 pos : POS;
-    float4 col : COL;
     float2 uv  : TEX;
+
+    float4 col : COL;
+    float4 rad : RAD;
+    float2 dim : DIM;
 };
 
 struct vs_out {
     float4 pos : SV_POSITION;
-    float4 col : COL;
     float2 uv  : TEX;
+    float4 col : COL;
+    float4 rad : RAD;
+    float2 dim : DIM;
 };
 
 const float fade = 0.006;
@@ -425,8 +476,10 @@ const float fade = 0.006;
 vs_out vs_main(vs_in input) {
     vs_out output;
     output.pos = mul(mvp, float4(input.pos, 0.0, 1.0));
-    output.col = input.col;
     output.uv = input.uv;
+    output.col = input.col;
+    output.rad = input.rad;
+    output.dim = input.dim;
     return output;
 }
 
@@ -439,12 +492,12 @@ float sd_rounded_box(float2 p, float2 b, float4 r) {
 
 float4 ps_main(vs_out input) : SV_TARGET {
     float2 uv = input.uv * 2.0 - 1.0;
-    uv.x *= 250.0 / 350.0;
+    uv.x *= input.dim.x / input.dim.y;
 
-    float2 size = float2(250.0 / 350.0, 1.0) - (fade * 0.5);
-    float4 radius = float4(0.25, 0.5, 0.75, 1.0);
+    float2 size = float2(input.dim.x / input.dim.y, 1.0) - (fade * 0.5);
+    float4 radius = input.rad;
 
-    float4 radii = min(radius, min(size.x, size.y));
+    float4 radii = min(radius.zywx, min(size.x, size.y));
 
     float d = sd_rounded_box(uv, size, radii);
     float a = 1.0 - smoothstep(0.0, fade, d);
