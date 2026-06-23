@@ -449,6 +449,8 @@ blob_to_string :: proc(blob: ^d3d.ID3DBlob) -> string {
     return string(ptr[:blob->GetBufferSize()])
 }
 
+// TODO: DO NOT INSTANCE!!!!!
+
 hlsl := `
 cbuffer vertexBuffer : register(b0) {
     float4x4 mvp;
