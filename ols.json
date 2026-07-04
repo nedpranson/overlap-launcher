@@ -1,0 +1,12 @@
+{
+    "$schema": "https://raw.githubusercontent.com/DanielGavin/ols/master/misc/ols.schema.json",
+    "profile": "windows_cross",
+    "profiles": [
+        {
+            "name": "windows_cross",
+            "os": "windows",
+            "arch": "amd64"
+        }
+    ],
+    "checker_args": "-target:windows_amd64"
+}

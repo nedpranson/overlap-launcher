@@ -163,10 +163,10 @@ main :: proc() {
     defer ps->Release()
 
     input := [?]d3d11.INPUT_ELEMENT_DESC{
-        { "POS", 0,     .R32G32_FLOAT,   0,                            0,   .VERTEX_DATA, 0 },
-        { "TEX", 0,     .R32G32_FLOAT,   0, d3d11.APPEND_ALIGNED_ELEMENT,   .VERTEX_DATA, 0 },
-
-        { "COL", 0,     .R8G8B8A8_UNORM, 1,                            0, .INSTANCE_DATA, 1 },
+        { "POS", 0,       .R32G32_FLOAT, 0,                            0, .VERTEX_DATA,   0 },
+        { "TEX", 0,       .R32G32_FLOAT, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA,   0 },
+        { "OFF", 0,       .R32G32_FLOAT, 1,                            0, .INSTANCE_DATA, 1 },
+        { "COL", 0,     .R8G8B8A8_UNORM, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
         { "RAD", 0, .R32G32B32A32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
         { "DIM", 0,       .R32G32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
     }
@@ -221,12 +221,23 @@ main :: proc() {
     defer const_buf->Release()
 
     vertex_buf: ^d3d11.IBuffer
-    hr = device->CreateBuffer(&{
-        Usage = .DYNAMIC,
-        CPUAccessFlags = {.WRITE},
-        ByteWidth = 12 * size_of(Vertex),
-        BindFlags = {.VERTEX_BUFFER},
-    }, nil, &vertex_buf)
+    hr = device->CreateBuffer(
+        &{
+            ByteWidth = 6 * size_of(Vertex),
+            BindFlags = {.VERTEX_BUFFER},
+        },
+        &{
+            pSysMem = raw_data([]Vertex{
+                { { 0.0, 0.0 }, { 0.0, 0.0 } },
+                { { 1.0, 0.0 }, { 1.0, 0.0 } },
+                { { 1.0, 1.0 }, { 1.0, 1.0 } },
+                { { 1.0, 1.0 }, { 1.0, 1.0 } },
+                { { 0.0, 1.0 }, { 0.0, 1.0 } },
+                { { 0.0, 0.0 }, { 0.0, 0.0 } },
+            }),
+        },
+        &vertex_buf
+    )
     if win32.FAILED(hr) {
         fmt.eprintln("d3d11::IDevice::CreateBuffer failed:", hr)
         return
@@ -237,7 +248,7 @@ main :: proc() {
     hr = device->CreateBuffer(&{
         Usage = .DYNAMIC,
         CPUAccessFlags = {.WRITE},
-        ByteWidth = 2 * size_of(Instance),
+        ByteWidth = 256 * size_of(Instance),
         BindFlags = {.VERTEX_BUFFER},
     }, nil, &instance_buf)
     if win32.FAILED(hr) {
@@ -312,61 +323,11 @@ main :: proc() {
                     },
                 },
                 backgroundColor = { 224, 215, 210, 255 },
+                cornerRadius = clay.CornerRadiusAll(0.10),
             }) {}
         }
 
         cmds := clay.EndLayout()
-
-        {
-            resource: d3d11.MAPPED_SUBRESOURCE
-
-            hr = device_context->Map(vertex_buf, 0, .WRITE_DISCARD, {}, &resource)
-            if (win32.FAILED(hr)) {
-                fmt.eprintln("d3d11::IDeviceContext::Map failed:", hr)
-                return
-            }
-            defer device_context->Unmap(vertex_buf, 0)
-
-            vertices := cast([^]Vertex)resource.pData
-
-            // for i in 0 ..< cmds.length {
-            //     cmd := clay.RenderCommandArray_Get(&cmds, i)
-            //     #partial switch cmd.commandType {
-            //     case .Rectangle:
-            //         col := rgba(
-            //             u8(cmd.renderData.rectangle.backgroundColor.r),
-            //             u8(cmd.renderData.rectangle.backgroundColor.g),
-            //             u8(cmd.renderData.rectangle.backgroundColor.b),
-            //             u8(cmd.renderData.rectangle.backgroundColor.a),
-            //         )
-            //         vertices[i * 6 + 0] = { { cmd.boundingBox.x, cmd.boundingBox.y }, col }; // top-left
-            //         vertices[i * 6 + 1] = { { cmd.boundingBox.x + cmd.boundingBox.width, cmd.boundingBox.y }, col }; // top-right
-            //         vertices[i * 6 + 2] = { { cmd.boundingBox.x + cmd.boundingBox.width, cmd.boundingBox.y + cmd.boundingBox.height }, col }; // bottom-right
-            //
-            //         vertices[i * 6 + 3] = { { cmd.boundingBox.x + cmd.boundingBox.width, cmd.boundingBox.y + cmd.boundingBox.height }, col }; // bottom-right
-            //         vertices[i * 6 + 4] = { { cmd.boundingBox.x, cmd.boundingBox.y + cmd.boundingBox.height }, col }; // bottom-left
-            //         vertices[i * 6 + 5] = { { cmd.boundingBox.x, cmd.boundingBox.y }, col }; // top-left
-            //     }
-            // }
-
-            vertices[0] = { { 25.0,  25.0  }, {0.0, 0.0} }
-            vertices[1] = { { 275.0, 25.0  }, {1.0, 0.0} }
-            vertices[2] = { { 275.0, 375.0 }, {1.0, 1.0} }
-
-            vertices[3] = { { 275.0, 375.0 }, {1.0, 1.0} }
-            vertices[4] = { { 25.0,  375.0 }, {0.0, 1.0} }
-            vertices[5] = { { 25.0,  25.0  }, {0.0, 0.0} }
-
-
-            vertices[6] = { { 0.0, 0.0  }, {0.0, 0.0} }
-            vertices[7] = { { 100.0, 0.0  }, {1.0, 0.0} }
-            vertices[8] = { { 100.0, 100.0 }, {1.0, 1.0} }
-
-            vertices[9] = { { 100.0, 100.0 }, {1.0, 1.0} }
-            vertices[10] = { { 0.0,  100.0 }, {0.0, 1.0} }
-            vertices[11] = { { 0.0,  0.0  }, {0.0, 0.0} }
-        }
-
 
         {
             resource: d3d11.MAPPED_SUBRESOURCE
@@ -380,8 +341,27 @@ main :: proc() {
 
             instances := cast([^]Instance)resource.pData
 
-            instances[0] = { 0xFFFF00FF, { 0.125, 0.25, 0.375, 0.5 }, { 250.0, 350.0 } }
-            instances[1] = { 0xFFFFFFFF, { 1.0, 1.0, 1.0, 1.0}, { 250.0, 350.0 } }
+            for i in 0 ..< cmds.length {
+                cmd := clay.RenderCommandArray_Get(&cmds, i)
+                #partial switch cmd.commandType {
+                case .Rectangle:
+                    col := rgba(
+                        u8(cmd.renderData.rectangle.backgroundColor.r),
+                        u8(cmd.renderData.rectangle.backgroundColor.g),
+                        u8(cmd.renderData.rectangle.backgroundColor.b),
+                        u8(cmd.renderData.rectangle.backgroundColor.a),
+                    )
+
+                    radius := [4]f32{
+                        cmd.renderData.rectangle.cornerRadius.topLeft,
+                        cmd.renderData.rectangle.cornerRadius.topRight,
+                        cmd.renderData.rectangle.cornerRadius.bottomRight,
+                        cmd.renderData.rectangle.cornerRadius.bottomLeft,
+                    }
+
+                    instances[i] = { { cmd.boundingBox.x, cmd.boundingBox.y }, col, radius, { cmd.boundingBox.width, cmd.boundingBox.height } }
+                }
+            }
         }
 
         device_context->ClearRenderTargetView(rtv, &[4]f32{0.25, 0.5, 1.0, 1.0})
@@ -392,11 +372,10 @@ main :: proc() {
         instance_offset := u32(0)
         instance_stride := u32(size_of(Instance))
 
-        device_context->IASetVertexBuffers(0, 1, &vertex_buf, &vertex_stride, &vertex_offset)
+        device_context->IASetVertexBuffers(0, 1, &vertex_buf,   &vertex_stride,   &vertex_offset)
         device_context->IASetVertexBuffers(1, 1, &instance_buf, &instance_stride, &instance_offset)
 
-        // tood: add unit quad
-        device_context->DrawInstanced(6, 2, 0, 0)
+        device_context->DrawInstanced(6, u32(cmds.length), 0, 0)
 
         hr = swap_chain->Present(1, {})
         if win32.FAILED(hr) {
@@ -419,10 +398,11 @@ Contants :: struct #align(16) {
 
 Vertex :: struct #align(16) {
     pos: [2]f32,
-    uv: [2]f32,
+    uv:  [2]f32,
 }
 
 Instance :: struct #align(16) {
+    off: [2]f32,
     col: u32,
     rad: [4]f32,
     dim: [2]f32,
@@ -449,8 +429,6 @@ blob_to_string :: proc(blob: ^d3d.ID3DBlob) -> string {
     return string(ptr[:blob->GetBufferSize()])
 }
 
-// TODO: DO NOT INSTANCE!!!!!
-
 hlsl := `
 cbuffer vertexBuffer : register(b0) {
     float4x4 mvp;
@@ -460,6 +438,7 @@ struct vs_in {
     float2 pos : POS;
     float2 uv  : TEX;
 
+    float2 off : OFF;
     float4 col : COL;
     float4 rad : RAD;
     float2 dim : DIM;
@@ -477,7 +456,8 @@ const float fade = 0.006;
 
 vs_out vs_main(vs_in input) {
     vs_out output;
-    output.pos = mul(mvp, float4(input.pos, 0.0, 1.0));
+    float2 worldPos = input.off + input.pos * input.dim;
+    output.pos = mul(mvp, float4(worldPos, 0.0, 1.0));
     output.uv = input.uv;
     output.col = input.col;
     output.rad = input.rad;
