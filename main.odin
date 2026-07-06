@@ -304,27 +304,29 @@ main :: proc() {
         clay.BeginLayout()
 
         if clay.UI()({
-            id = clay.ID("root"),
+            id = clay.ID("main"),
             layout = {
                 sizing = {
                     width = clay.SizingGrow({}),
                     height = clay.SizingGrow({}),
                 },
                 padding = clay.PaddingAll(16),
+                childGap = 16,
+                layoutDirection = .TopToBottom,
             },
-            backgroundColor = { 100, 100, 100, 255 },
+            backgroundColor = { 16, 25, 30, 255 },
         }) {
-            if clay.UI()({
-                id = clay.ID("main"),
-                layout = {
-                    sizing = {
-                        width = clay.SizingGrow({}),
-                        height = clay.SizingGrow({}),
+            for _ in 0 ..< 5 {
+                if clay.UI()({
+                    layout = {
+                        sizing = {
+                            width = clay.SizingGrow({}),
+                            height = clay.SizingFixed(48),
+                        },
                     },
-                },
-                backgroundColor = { 224, 215, 210, 255 },
-                cornerRadius = clay.CornerRadiusAll(0.10),
-            }) {}
+                    backgroundColor = { 26, 35, 40, 255 },
+                }) {}
+            }
         }
 
         cmds := clay.EndLayout()
@@ -387,9 +389,9 @@ main :: proc() {
 
 rgba :: proc(r, g, b, a: u8) -> u32 {
     return (u32(a) << 24) |
-           (u32(r) << 16) |
+           (u32(b) << 16) |
            (u32(g) << 8)  |
-           (u32(b) << 0)
+           (u32(r) << 0)
 }
 
 Contants :: struct #align(16) {
