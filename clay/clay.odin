@@ -2,19 +2,7 @@ package clay
 
 import "core:c"
 
-when ODIN_OS == .Windows {
-	foreign import Clay "windows/clay.lib"
-} else when ODIN_OS == .Linux {
-	foreign import Clay "linux/clay.a"
-} else when ODIN_OS == .Darwin {
-	when ODIN_ARCH == .arm64 {
-		foreign import Clay "macos-arm64/clay.a"
-	} else {
-		foreign import Clay "macos/clay.a"
-	}
-} else when ODIN_ARCH == .wasm32 || ODIN_ARCH == .wasm64p32 {
-	foreign import Clay "wasm/clay.o"
-}
+foreign import Clay "clay.lib"
 
 String :: struct {
 	isStaticallyAllocated: c.bool,

@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "base:runtime"
 import "core:fmt"
 import "core:c"
@@ -10,6 +11,7 @@ import "vendor:directx/dxgi"
 import d3d "vendor:directx/d3d_compiler"
 
 import "clay"
+import oc "onecore"
 
 CLASS_NAME :: "OverlapLauncherClass"
 
@@ -293,6 +295,30 @@ main :: proc() {
 
     arena := clay.CreateArenaWithCapacityAndMemory(llen, bytes)
     clay.Initialize(arena, { WIDTH, HEIGHT }, { handler = handle_clay_errors })
+
+    lib: ^oc.library
+    if err := oc.init_library(&lib); err != .ok {
+        fmt.eprintln("oc::init_library failed:", err)
+        return
+    }
+    defer oc.free_library(lib)
+
+    col: oc.collection
+    if err := oc.init_collection(lib, &col); err != .ok {
+        fmt.eprintln("oc::init_collection failed:", err)
+        return
+    }
+    defer oc.free_collection(&col)
+
+    fmt.println(os.get_executable_path(context.allocator))
+    fmt.println(os.stat("fonts/SegoeUI-Regular.ttf", context.allocator))
+
+    face: oc.face
+    if err := oc.open_face(lib, "fonts/SegoeUI-Regular.ttf", nil, &face); err != .ok {
+        fmt.eprintln("oc::open_face failed:", err)
+        return
+    }
+    defer oc.free_face(&face)
 
     win32.ShowWindow(hwnd, win32.SW_SHOW)
 
