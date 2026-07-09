@@ -71,7 +71,7 @@ foreign onecore {
 
 @(link_prefix = "ocl_", default_calling_convention = "c")
 foreign onecore {
-    open_face :: proc(library: ^library, path: string, uparams: ^open_params, oface: ^face) -> error ---
+    open_face :: proc(library: ^library, path: cstring, uparams: ^open_params, oface: ^face) -> error ---
     free_face :: proc(face: ^face) ---
 }
 

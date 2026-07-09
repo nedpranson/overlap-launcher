@@ -310,9 +310,6 @@ main :: proc() {
     }
     defer oc.free_collection(&col)
 
-    fmt.println(os.get_executable_path(context.allocator))
-    fmt.println(os.stat("fonts/SegoeUI-Regular.ttf", context.allocator))
-
     face: oc.face
     if err := oc.open_face(lib, "fonts/SegoeUI-Regular.ttf", nil, &face); err != .ok {
         fmt.eprintln("oc::open_face failed:", err)
