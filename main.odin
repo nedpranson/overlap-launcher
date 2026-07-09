@@ -316,7 +316,7 @@ main :: proc() {
     face: oc.face
     if err := oc.open_face(lib, "fonts/SegoeUI-Regular.ttf", nil, &face); err != .ok {
         fmt.eprintln("oc::open_face failed:", err)
-        return
+        panic("fuck windows")
     }
     defer oc.free_face(&face)
 
