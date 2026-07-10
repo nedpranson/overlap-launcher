@@ -1,6 +1,5 @@
 package main
 
-import "core:os"
 import "base:runtime"
 import "core:fmt"
 import "core:c"
@@ -17,6 +16,8 @@ CLASS_NAME :: "OverlapLauncherClass"
 
 WIDTH :: 300 
 HEIGHT :: 400 
+
+face: oc.face
 
 main :: proc() {
     instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
@@ -289,13 +290,6 @@ main :: proc() {
     device_context->VSSetShader(vs, nil, 0)
     device_context->PSSetShader(ps, nil, 0)
 
-    llen := c.size_t(clay.MinMemorySize())
-    bytes := make([^]byte, llen)
-    defer free(bytes)
-
-    arena := clay.CreateArenaWithCapacityAndMemory(llen, bytes)
-    clay.Initialize(arena, { WIDTH, HEIGHT }, { handler = handle_clay_errors })
-
     lib: ^oc.library
     if err := oc.init_library(&lib); err != .ok {
         fmt.eprintln("oc::init_library failed:", err)
@@ -303,19 +297,20 @@ main :: proc() {
     }
     defer oc.free_library(lib)
 
-    col: oc.collection
-    if err := oc.init_collection(lib, &col); err != .ok {
-        fmt.eprintln("oc::init_collection failed:", err)
-        return
-    }
-    defer oc.free_collection(&col)
-
-    face: oc.face
     if err := oc.open_face(lib, "fonts/SegoeUI-Regular.ttf", nil, &face); err != .ok {
         fmt.eprintln("oc::open_face failed:", err)
-        panic("fuck windows")
+        return
     }
     defer oc.free_face(&face)
+
+    llen := c.size_t(clay.MinMemorySize())
+    bytes := make([^]byte, llen)
+    defer free(bytes)
+
+    arena := clay.CreateArenaWithCapacityAndMemory(llen, bytes)
+    clay.Initialize(arena, { WIDTH, HEIGHT }, { handler = handle_clay_errors })
+
+    clay.SetMeasureTextFunction(measure_clay_text, nil)
 
     win32.ShowWindow(hwnd, win32.SW_SHOW)
 
@@ -346,9 +341,15 @@ main :: proc() {
                             width = clay.SizingGrow({}),
                             height = clay.SizingFixed(48),
                         },
+                        childAlignment = {
+                            x = .Center,
+                            y = .Center
+                        }
                     },
                     backgroundColor = { 26, 35, 40, 255 },
-                }) {}
+                }) {
+                    clay.Text("Hello World", clay.TextConfig({ fontSize = 32 }))
+                }
             }
         }
 
@@ -385,6 +386,8 @@ main :: proc() {
                     }
 
                     instances[i] = { { cmd.boundingBox.x, cmd.boundingBox.y }, col, radius, { cmd.boundingBox.width, cmd.boundingBox.height } }
+                case .Text:
+                    fmt.println(cmd.boundingBox)
                 }
             }
         }
@@ -436,6 +439,26 @@ Instance :: struct #align(16) {
 handle_clay_errors :: proc "c" (error: clay.ErrorData) {
     context = runtime.default_context()
     fmt.eprintln(error)
+}
+
+measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElementConfig, user_data: rawptr) -> clay.Dimensions {
+    oc.set_size(&face, i32(config.fontSize) << 6, 72)
+
+    width : oc.i26p6 = 0
+
+    for rune in string(text.chars[:text.length]) {
+        metrics: oc.glyph_metrics
+
+        idx := oc.get_char_index(&face, u32(rune))
+        oc.get_glyph_metrics(&face, idx, 0, &metrics)
+
+        width += metrics.advance + metrics.bearing_x;
+    }
+
+    return {
+        width = f32(width >> 6),
+        height = f32(oc.mul_16p16(oc.i16p16(face.descent + face.ascent), face.size.scale) >> 6),
+    }
 }
 
 WndProc :: proc "stdcall" (hwnd: win32.HWND, msg: win32.UINT, wparam: win32.WPARAM, lparam: win32.LPARAM) -> win32.LRESULT {

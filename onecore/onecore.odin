@@ -39,6 +39,14 @@ face :: struct {
     underline_thickness: u16,
 };
 
+glyph_metrics :: struct {
+    width: i26p6,
+    height: i26p6,
+    bearing_x: i26p6,
+    bearing_y: i26p6,
+    advance: i26p6,
+}
+
 size :: struct {
     ppem: u16,
     scale: i16p16,
@@ -67,17 +75,22 @@ collection :: struct {
 foreign onecore {
     init_library :: proc(olibrary: ^^library) -> error ---
     free_library :: proc(library: ^library) ---
+    mul_16p16    :: proc(a: i26p6, b: i26p6) -> i26p6 ---
+    div_16p16    :: proc(a: i26p6, b: i26p6) -> i26p6 ---
 }
 
 @(link_prefix = "ocl_", default_calling_convention = "c")
 foreign onecore {
-    open_face :: proc(library: ^library, path: cstring, uparams: ^open_params, oface: ^face) -> error ---
-    free_face :: proc(face: ^face) ---
+    open_face          :: proc(library: ^library, path: cstring, uparams: ^open_params, oface: ^face) -> error ---
+    free_face          :: proc(face: ^face) ---
+    set_size           :: proc(face: ^face, desired_size: i26p6, dpi: u16) -> error ---
+    get_char_index     :: proc(face: ^face, charcode: u32) -> u16 ---
+    get_glyph_metrics  :: proc(face: ^face, index: u16, flags: u32, ometrics: ^glyph_metrics) ---
 }
 
 @(link_prefix = "ocf_", default_calling_convention = "c")
 foreign onecore {
     init_collection :: proc(library: ^library, ocollection: ^collection) -> error ---
     free_collection :: proc(collection: ^collection) ---
-    load_fonts :: proc(collection: ^collection) -> error ---
+    load_fonts      :: proc(collection: ^collection) -> error ---
 }
