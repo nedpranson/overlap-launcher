@@ -71,6 +71,11 @@ collection :: struct {
     nfonts: u32,
 }
 
+extent :: struct {
+    rows: u32,
+    cols: u32,
+}
+
 @(link_prefix = "oc_", default_calling_convention = "c")
 foreign onecore {
     init_library :: proc(olibrary: ^^library) -> error ---
@@ -86,6 +91,7 @@ foreign onecore {
     set_size           :: proc(face: ^face, desired_size: i26p6, dpi: u16) -> error ---
     get_char_index     :: proc(face: ^face, charcode: u32) -> u16 ---
     get_glyph_metrics  :: proc(face: ^face, index: u16, flags: u32, ometrics: ^glyph_metrics) ---
+    render_glyph       :: proc(face: ^face, index: u16, oextent: ^extent, buffer: rawptr, pitch: c.size_t) -> error ---
 }
 
 @(link_prefix = "ocf_", default_calling_convention = "c")

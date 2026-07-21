@@ -1,5 +1,6 @@
 package main
 
+import "core:os"
 import "base:runtime"
 import "core:fmt"
 import "core:c"
@@ -11,15 +12,49 @@ import d3d "vendor:directx/d3d_compiler"
 
 import "clay"
 import oc "onecore"
+import stbrp "vendor:stb/rect_pack"
 
 CLASS_NAME :: "OverlapLauncherClass"
 
 WIDTH :: 300 
 HEIGHT :: 400 
 
-face: oc.face
+face   : oc.face
+glyphs : map[Font_Key]Glyph_Info
+atlas  : Atlas
+
+Atlas :: struct {
+    width: uint,
+    height: uint,
+    ctx: stbrp.Context,
+    pixels: []u8,
+    nodes: []stbrp.Node,
+}
+
+Font_Key :: struct {
+    charcode: rune,
+    font_size: oc.i26p6,
+}
+
+Glyph_Info :: struct {
+    x, y: stbrp.Coord,
+    w, h: stbrp.Coord,
+    metrics: oc.glyph_metrics,
+}
 
 main :: proc() {
+    atlas = Atlas{
+        width = 512,
+        height = 512,
+        pixels = make([]u8, 512 * 512),
+        nodes = make([]stbrp.Node, 512),
+    }
+    defer delete(atlas.pixels)
+    defer delete(atlas.nodes)
+
+    glyphs = make(map[Font_Key]Glyph_Info)
+    defer delete(glyphs)
+
     instance := win32.HINSTANCE(win32.GetModuleHandleW(nil))
 
     if win32.RegisterClassW(&{
@@ -312,6 +347,9 @@ main :: proc() {
 
     clay.SetMeasureTextFunction(measure_clay_text, nil)
 
+    stbrp.init_target(&atlas.ctx, 512, 512, raw_data(atlas.nodes), i32(len(atlas.nodes)))
+    stbrp.setup_heuristic(&atlas.ctx, .Skyline_default)
+
     win32.ShowWindow(hwnd, win32.SW_SHOW)
 
     msg: win32.MSG
@@ -348,7 +386,7 @@ main :: proc() {
                     },
                     backgroundColor = { 26, 35, 40, 255 },
                 }) {
-                    clay.Text("Hello World", clay.TextConfig({ fontSize = 32 }))
+                    clay.Text("Hello World!", clay.TextConfig({ fontSize = 32 }))
                 }
             }
         }
@@ -387,7 +425,9 @@ main :: proc() {
 
                     instances[i] = { { cmd.boundingBox.x, cmd.boundingBox.y }, col, radius, { cmd.boundingBox.width, cmd.boundingBox.height } }
                 case .Text:
-                    fmt.println(cmd.boundingBox)
+                    text := cmd.renderData.text.stringContents
+                    for rune in string(text.chars[:text.length]) {
+                    }
                 }
             }
         }
@@ -411,6 +451,13 @@ main :: proc() {
             return;
         }
     }
+
+
+    file, ok := os.create("atlas.pgm")
+    defer os.close(file)
+
+    os.write(file, transmute([]u8)(fmt.tprintf("P5\n%d %d\n255\n", 512, 512)))
+    os.write(file, atlas.pixels)
 }
 
 rgba :: proc(r, g, b, a: u8) -> u32 {
@@ -444,13 +491,42 @@ handle_clay_errors :: proc "c" (error: clay.ErrorData) {
 measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElementConfig, user_data: rawptr) -> clay.Dimensions {
     oc.set_size(&face, i32(config.fontSize) << 6, 72)
 
+    context = runtime.default_context()
+
     width : oc.i26p6 = 0
 
     for rune in string(text.chars[:text.length]) {
+        key := Font_Key{
+            charcode = rune,
+            font_size = oc.i26p6(config.fontSize) << 6,
+        }
+
         metrics: oc.glyph_metrics
 
-        idx := oc.get_char_index(&face, u32(rune))
-        oc.get_glyph_metrics(&face, idx, 0, &metrics)
+        if glyph, ok := glyphs[key]; ok {
+            metrics = glyph.metrics
+        } else {
+            idx := oc.get_char_index(&face, u32(rune))
+            oc.get_glyph_metrics(&face, idx, 0, &metrics)
+
+            ext: oc.extent
+            oc.render_glyph(&face, idx, &ext, nil, 0)
+
+            rec := stbrp.Rect{
+                w = stbrp.Coord(ext.cols),
+                h = stbrp.Coord(ext.rows),
+            }
+            stbrp.pack_rects(&atlas.ctx, &rec, 1)
+
+            oc.render_glyph(&face, idx, &ext, raw_data(atlas.pixels[rec.y * stbrp.Coord(atlas.width) + rec.x:]), atlas.width)
+            
+            fmt.println("rendering '", rune, "'")
+            glyphs[key] = {
+                x = rec.x, y = rec.y,
+                w = rec.w, h = rec.h,
+                metrics = metrics,
+            }
+        }
 
         width += metrics.advance + metrics.bearing_x;
     }
