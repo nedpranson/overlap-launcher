@@ -295,6 +295,31 @@ main :: proc() {
     }
     defer instance_buf->Release()
 
+    pixel_tex : ^d3d11.ITexture2D
+    if hr = device->CreateTexture2D(&{
+        Width = 1,
+        Height = 1,
+        MipLevels = 1,
+        ArraySize = 1,
+        Format = .R8G8B8A8_UNORM,
+        Usage = .DEFAULT,
+        BindFlags = {.SHADER_RESOURCE},
+    }, &{
+        pSysMem = raw_data([]u8{0xFF, 0xFF, 0xFF, 0xFF}),
+        SysMemPitch = 1,
+    }, &pixel_tex); win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateTexture2D failed:", hr)
+        return
+    }
+    defer pixel_tex->Release()
+
+    pixel_srv : ^d3d11.IShaderResourceView
+    if hr = device->CreateShaderResourceView(pixel_tex, nil, &pixel_srv); win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateShaderResourceView failed:", hr)
+        return
+    }
+    defer pixel_srv->Release()
+
     {
         resource: d3d11.MAPPED_SUBRESOURCE
 
@@ -442,6 +467,7 @@ main :: proc() {
 
         device_context->IASetVertexBuffers(0, 1, &vertex_buf,   &vertex_stride,   &vertex_offset)
         device_context->IASetVertexBuffers(1, 1, &instance_buf, &instance_stride, &instance_offset)
+        device_context->PSSetShaderResources(0, 1, &pixel_srv)
 
         device_context->DrawInstanced(6, u32(cmds.length), 0, 0)
 
@@ -558,6 +584,9 @@ cbuffer vertexBuffer : register(b0) {
     float4x4 mvp;
 }
 
+Texture2D    tex : register(t0);
+SamplerState smp : register(s0);
+
 struct vs_in {
     float2 pos : POS;
     float2 uv  : TEX;
@@ -608,7 +637,7 @@ float4 ps_main(vs_out input) : SV_TARGET {
     float d = sd_rounded_box(uv, size, radii);
     float a = 1.0 - smoothstep(0.0, fade, d);
 
-    float4 col = input.col;
+    float4 col = input.col * tex.Sample(smp, input.uv);
     col.a *= a;
 
     return col;
