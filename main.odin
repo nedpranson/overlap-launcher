@@ -1,7 +1,8 @@
 package main
 
-import "core:mem"
+import "core:math"
 import "core:os"
+import "core:mem"
 import "base:runtime"
 import "core:fmt"
 import "core:c"
@@ -241,6 +242,22 @@ main :: proc() {
     }
     defer blend_state->Release()
 
+    sampler: ^d3d11.ISamplerState
+    hr = device->CreateSamplerState(&{
+        Filter = .MIN_MAG_MIP_POINT,
+        AddressU = .CLAMP,
+        AddressV = .CLAMP,
+        AddressW = .CLAMP,
+        MaxAnisotropy = 1,
+        ComparisonFunc = .NEVER,
+        MaxLOD = d3d11.FLOAT32_MAX,
+    }, &sampler)
+    if win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateSamplerState failed:", hr)
+        return;
+    }
+    defer sampler->Release()
+
     rasterizer: ^d3d11.IRasterizerState
     hr = device->CreateRasterizerState(&{ FillMode = .SOLID, CullMode = .NONE }, &rasterizer)
     if win32.FAILED(hr) {
@@ -378,6 +395,7 @@ main :: proc() {
     device_context->IASetPrimitiveTopology(.TRIANGLELIST)
     device_context->VSSetShader(vs, nil, 0)
     device_context->PSSetShader(ps, nil, 0)
+    device_context->PSSetSamplers(0, 1, &sampler)
 
     lib: ^oc.library
     if err := oc.init_library(&lib); err != .ok {
@@ -386,7 +404,7 @@ main :: proc() {
     }
     defer oc.free_library(lib)
 
-    if err := oc.open_face(lib, "fonts/SegoeUI-Regular.ttf", nil, &face); err != .ok {
+    if err := oc.open_face(lib, "fonts/Inter-VariableFont_opsz,wght.ttf", nil, &face); err != .ok {
         fmt.eprintln("oc::open_face failed:", err)
         return
     }
@@ -440,7 +458,7 @@ main :: proc() {
                     },
                     backgroundColor = { 26, 35, 40, 255 },
                 }) {
-                    clay.Text("Hello World!", clay.TextConfig({ fontSize = 32 }))
+                    clay.Text("Hello World!", clay.TextConfig({ fontSize = 12 }))
                 }
             }
         }
@@ -506,9 +524,9 @@ main :: proc() {
 
                         instances[instances_len] = {
                             { f32(glyph.w), f32(glyph.h) },
-                            { pen.x + f32(glyph.metrics.bearing_x >> 6), pen.y - f32(glyph.metrics.bearing_y >> 6) },
-                            { f32(glyph.w) / 512.0, f32(glyph.h) / 512.0 },
-                            { f32(glyph.x) / 512.0, f32(glyph.y) / 512.0 },
+                            { math.floor(pen.x + f32(glyph.metrics.bearing_x >> 6)), math.floor(pen.y - f32(glyph.metrics.bearing_y >> 6)) },
+                            { f32(glyph.w) / f32(atlas.width), f32(glyph.h) / f32(atlas.width) },
+                            { f32(glyph.x) / f32(atlas.width), f32(glyph.y) / f32(atlas.height) },
                             { 0.0, 0.0, 0.0, 0.0 },
                             0xFFFFFFFF,
                             67,
@@ -554,8 +572,6 @@ main :: proc() {
             return;
         }
     }
-
-
     file, ok := os.create("atlas.pgm")
     defer os.close(file)
 
@@ -616,8 +632,8 @@ measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElement
             oc.render_glyph(&face, idx, &ext, nil, 0)
 
             rec := stbrp.Rect{
-                w = stbrp.Coord(ext.cols),
-                h = stbrp.Coord(ext.rows),
+                w = stbrp.Coord(ext.cols) + 1,
+                h = stbrp.Coord(ext.rows) + 1,
             }
             stbrp.pack_rects(&atlas.ctx, &rec, 1)
 
@@ -625,7 +641,7 @@ measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElement
             
             glyphs[key] = {
                 x = rec.x, y = rec.y,
-                w = rec.w, h = rec.h,
+                w = stbrp.Coord(ext.cols), h = stbrp.Coord(ext.rows),
                 metrics = metrics,
             }
         }
