@@ -1,5 +1,6 @@
 package main
 
+import "core:mem"
 import "core:os"
 import "base:runtime"
 import "core:fmt"
@@ -203,10 +204,13 @@ main :: proc() {
     input := [?]d3d11.INPUT_ELEMENT_DESC{
         { "POS", 0,       .R32G32_FLOAT, 0,                            0, .VERTEX_DATA,   0 },
         { "TEX", 0,       .R32G32_FLOAT, 0, d3d11.APPEND_ALIGNED_ELEMENT, .VERTEX_DATA,   0 },
-        { "OFF", 0,       .R32G32_FLOAT, 1,                            0, .INSTANCE_DATA, 1 },
-        { "COL", 0,     .R8G8B8A8_UNORM, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
+        { "DIM", 0,       .R32G32_FLOAT, 1,                            0, .INSTANCE_DATA, 1 },
+        { "OFF", 0,       .R32G32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
+        { "DIM", 1,       .R32G32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
+        { "OFF", 1,       .R32G32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
         { "RAD", 0, .R32G32B32A32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
-        { "DIM", 0,       .R32G32_FLOAT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
+        { "COL", 0,     .R8G8B8A8_UNORM, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
+        { "EXT", 0,            .R8_UINT, 1, d3d11.APPEND_ALIGNED_ELEMENT, .INSTANCE_DATA, 1 },
     }
 
     layout: ^d3d11.IInputLayout
@@ -302,6 +306,7 @@ main :: proc() {
         MipLevels = 1,
         ArraySize = 1,
         Format = .R8G8B8A8_UNORM,
+        SampleDesc = {Count = 1},
         Usage = .DEFAULT,
         BindFlags = {.SHADER_RESOURCE},
     }, &{
@@ -319,6 +324,30 @@ main :: proc() {
         return
     }
     defer pixel_srv->Release()
+
+    atlas_tex : ^d3d11.ITexture2D
+    if hr = device->CreateTexture2D(&{
+        Width = 512,
+        Height = 512,
+        MipLevels = 1,
+        ArraySize = 1,
+        Format = .R8_UNORM,
+        SampleDesc = {Count = 1},
+        Usage = .DYNAMIC,
+        BindFlags = {.SHADER_RESOURCE},
+        CPUAccessFlags = {.WRITE},
+    }, nil, &atlas_tex); win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateTexture2D failed:", hr)
+        return
+    }
+    defer atlas_tex->Release()
+
+    atlas_srv : ^d3d11.IShaderResourceView
+    if hr = device->CreateShaderResourceView(atlas_tex, nil, &atlas_srv); win32.FAILED(hr) {
+        fmt.eprintln("d3d11::IDevice::CreateShaderResourceView failed:", hr)
+        return
+    }
+    defer atlas_srv->Release()
 
     {
         resource: d3d11.MAPPED_SUBRESOURCE
@@ -417,6 +446,7 @@ main :: proc() {
         }
 
         cmds := clay.EndLayout()
+        instances_len := 0
 
         {
             resource: d3d11.MAPPED_SUBRESOURCE
@@ -448,13 +478,60 @@ main :: proc() {
                         cmd.renderData.rectangle.cornerRadius.bottomLeft,
                     }
 
-                    instances[i] = { { cmd.boundingBox.x, cmd.boundingBox.y }, col, radius, { cmd.boundingBox.width, cmd.boundingBox.height } }
+                    instances[instances_len] = {
+                        { cmd.boundingBox.width, cmd.boundingBox.height },
+                        { cmd.boundingBox.x, cmd.boundingBox.y },
+                        { 1.0, 1.0 }, { 0.0, 0.0 },
+                        radius,
+                        col,
+                        0,
+                    }
+                    instances_len += 1
                 case .Text:
+                    oc.set_size(&face, i32(cmd.renderData.text.fontSize) << 6, 72)
+
+                    pen := [2]f32{
+                        cmd.boundingBox.x,
+                        cmd.boundingBox.y + f32(oc.mul_16p16(oc.i16p16(face.ascent), face.size.scale) >> 6),
+                    }
+
                     text := cmd.renderData.text.stringContents
                     for rune in string(text.chars[:text.length]) {
+                        key := Font_Key{
+                            charcode = rune,
+                            font_size = oc.i26p6(cmd.renderData.text.fontSize) << 6,
+                        }
+
+                        glyph := glyphs[key]
+
+                        instances[instances_len] = {
+                            { f32(glyph.w), f32(glyph.h) },
+                            { pen.x + f32(glyph.metrics.bearing_x >> 6), pen.y - f32(glyph.metrics.bearing_y >> 6) },
+                            { f32(glyph.w) / 512.0, f32(glyph.h) / 512.0 },
+                            { f32(glyph.x) / 512.0, f32(glyph.y) / 512.0 },
+                            { 0.0, 0.0, 0.0, 0.0 },
+                            0xFFFFFFFF,
+                            67,
+                        }
+                        instances_len += 1
+                        
+                        pen.x += f32(glyph.metrics.advance >> 6);
                     }
                 }
             }
+        }
+
+        {
+            resource: d3d11.MAPPED_SUBRESOURCE
+
+            hr = device_context->Map(atlas_tex, 0, .WRITE_DISCARD, {}, &resource)
+            if (win32.FAILED(hr)) {
+                fmt.eprintln("d3d11::IDeviceContext::Map failed:", hr)
+                return
+            }
+            defer device_context->Unmap(atlas_tex, 0)
+
+            mem.copy(resource.pData, raw_data(atlas.pixels), 512 * 512)
         }
 
         device_context->ClearRenderTargetView(rtv, &[4]f32{0.25, 0.5, 1.0, 1.0})
@@ -467,9 +544,9 @@ main :: proc() {
 
         device_context->IASetVertexBuffers(0, 1, &vertex_buf,   &vertex_stride,   &vertex_offset)
         device_context->IASetVertexBuffers(1, 1, &instance_buf, &instance_stride, &instance_offset)
-        device_context->PSSetShaderResources(0, 1, &pixel_srv)
+        device_context->PSSetShaderResources(0, 2, raw_data([]^d3d11.IShaderResourceView{pixel_srv, atlas_srv}))
 
-        device_context->DrawInstanced(6, u32(cmds.length), 0, 0)
+        device_context->DrawInstanced(6, u32(instances_len), 0, 0)
 
         hr = swap_chain->Present(1, {})
         if win32.FAILED(hr) {
@@ -503,10 +580,13 @@ Vertex :: struct #align(16) {
 }
 
 Instance :: struct #align(16) {
-    off: [2]f32,
-    col: u32,
+    pos_dim: [2]f32,
+    pos_off: [2]f32,
+    uv_dim: [2]f32,
+    uv_pos: [2]f32,
     rad: [4]f32,
-    dim: [2]f32,
+    col: u32,
+    ext: u32,
 }
 
 handle_clay_errors :: proc "c" (error: clay.ErrorData) {
@@ -517,8 +597,6 @@ handle_clay_errors :: proc "c" (error: clay.ErrorData) {
 measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElementConfig, user_data: rawptr) -> clay.Dimensions {
     oc.set_size(&face, i32(config.fontSize) << 6, 72)
 
-    context = runtime.default_context()
-
     width : oc.i26p6 = 0
 
     for rune in string(text.chars[:text.length]) {
@@ -528,7 +606,6 @@ measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElement
         }
 
         metrics: oc.glyph_metrics
-
         if glyph, ok := glyphs[key]; ok {
             metrics = glyph.metrics
         } else {
@@ -546,7 +623,6 @@ measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElement
 
             oc.render_glyph(&face, idx, &ext, raw_data(atlas.pixels[rec.y * stbrp.Coord(atlas.width) + rec.x:]), atlas.width)
             
-            fmt.println("rendering '", rune, "'")
             glyphs[key] = {
                 x = rec.x, y = rec.y,
                 w = rec.w, h = rec.h,
@@ -554,7 +630,7 @@ measure_clay_text :: proc "c" (text: clay.StringSlice, config: ^clay.TextElement
             }
         }
 
-        width += metrics.advance + metrics.bearing_x;
+        width += metrics.advance;
     }
 
     return {
@@ -584,17 +660,19 @@ cbuffer vertexBuffer : register(b0) {
     float4x4 mvp;
 }
 
-Texture2D    tex : register(t0);
+Texture2D tex[2] : register(t0);
 SamplerState smp : register(s0);
 
 struct vs_in {
-    float2 pos : POS;
-    float2 uv  : TEX;
-
-    float2 off : OFF;
-    float4 col : COL;
-    float4 rad : RAD;
-    float2 dim : DIM;
+    float2 pos     : POS0;
+    float2 pos_dim : DIM0;
+    float2 pos_off : OFF0;
+    float2 uv_dim  : DIM1;
+    float2 uv_off  : OFF1;
+    float2 uv      : TEX0;
+    float4 rad     : RAD0;
+    float4 col     : COL0;
+    uint   ext     : EXT0;
 };
 
 struct vs_out {
@@ -603,18 +681,20 @@ struct vs_out {
     float4 col : COL;
     float4 rad : RAD;
     float2 dim : DIM;
+    uint   ext : EXT;
 };
 
 const float fade = 0.006;
 
 vs_out vs_main(vs_in input) {
     vs_out output;
-    float2 worldPos = input.off + input.pos * input.dim;
+    float2 worldPos = input.pos * input.pos_dim + input.pos_off;
     output.pos = mul(mvp, float4(worldPos, 0.0, 1.0));
-    output.uv = input.uv;
+    output.uv = input.uv * input.uv_dim + input.uv_off;
     output.col = input.col;
     output.rad = input.rad;
-    output.dim = input.dim;
+    output.dim = input.pos_dim;
+    output.ext = input.ext;
     return output;
 }
 
@@ -637,7 +717,12 @@ float4 ps_main(vs_out input) : SV_TARGET {
     float d = sd_rounded_box(uv, size, radii);
     float a = 1.0 - smoothstep(0.0, fade, d);
 
-    float4 col = input.col * tex.Sample(smp, input.uv);
+    float4 col;
+    if (input.ext == 0) {
+        col = input.col * tex[0].Sample(smp, input.uv);
+    } else {
+        col = input.col * tex[1].Sample(smp, input.uv).r;
+    }
     col.a *= a;
 
     return col;
